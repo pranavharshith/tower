@@ -1,10 +1,10 @@
-# flutter_tower
+# Tower Defense Game
 
-A new Flutter project.
+A Flutter tower defense game built with Flame engine.
 
 ## Getting Started
 
-This project is a starting point for a Flutter application.
+This project is a tower defense game application built with Flutter.
 
 A few resources to get you started if this is your first Flutter project:
 
