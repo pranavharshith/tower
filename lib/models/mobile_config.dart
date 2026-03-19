@@ -1,0 +1,16 @@
+// mobile_config.dart
+
+// Mobile configuration constants
+const String apiUrl = 'https://api.example.com';
+const String appVersion = '1.0.0';
+
+// Responsive scaling logic
+class Responsive {
+  static double scale(double value, {double baseWidth = 375.0}) {
+    return value * (window.physicalSize.width / baseWidth);
+  }
+
+  static double height(double value, {double baseHeight = 667.0}) {
+    return value * (window.physicalSize.height / baseHeight);
+  }
+}
