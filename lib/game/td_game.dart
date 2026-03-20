@@ -6,7 +6,6 @@ import 'package:flutter/material.dart';
 
 import '../data/td_maps.dart';
 import '../data/td_random_maps.dart';
-import '../services/td_audio.dart';
 import 'td_simulation.dart';
 
 class TdGameSettings {
@@ -78,9 +77,6 @@ class TdGame extends FlameGame with TapCallbacks {
   @override
   Future<void> onLoad() async {
     await super.onLoad();
-
-    // Initialize audio
-    await TdAudio().init();
 
     _tdMaps = const TdMaps();
     _randomMapGenerator = TdRandomMapGenerator(_rng);
@@ -392,8 +388,7 @@ class TdGame extends FlameGame with TapCallbacks {
     for (final t in _sim!.towers) {
       final cx = originX + t.posX * tileW;
       final cy = originY + t.posY * tileH;
-      // Scale down tower radius to fit within tile (towerdefense uses 0.3-0.5 as visual radius)
-      final r = t.radiusTiles * tileSizeForRadius * 0.5;
+      final r = t.radiusTiles * tileSizeForRadius;
 
       // Draw range circle if selected or placing
       if (t == selectedTower || placingType?.key == t.towerType.key) {
