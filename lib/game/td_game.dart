@@ -19,12 +19,38 @@ class TdHudData {
   final int maxHealth;
   final int cash;
   final bool paused;
+  final int healAmount;
+  final int healEffectTicks;
+  final bool isBossWave;
+  final bool gameStarted;
+  final int countdownSeconds;
+  final bool isPlacingTower;
+  final int? pendingTowerCol;
+  final int? pendingTowerRow;
+  final TdTowerType? pendingTowerType;
+  final int placementTimeoutSeconds;
+  final int towerCount;
+  final int maxTowers;
+  final bool maxTowersReached;
   const TdHudData({
     required this.wave,
     required this.health,
     required this.maxHealth,
     required this.cash,
     required this.paused,
+    this.healAmount = 0,
+    this.healEffectTicks = 0,
+    this.isBossWave = false,
+    this.gameStarted = false,
+    this.countdownSeconds = 10,
+    this.isPlacingTower = false,
+    this.pendingTowerCol,
+    this.pendingTowerRow,
+    this.pendingTowerType,
+    this.placementTimeoutSeconds = 7,
+    this.towerCount = 0,
+    this.maxTowers = 21,
+    this.maxTowersReached = false,
   });
 }
 
@@ -33,13 +59,37 @@ class TdGame extends FlameGame with TapCallbacks {
   final TdGameSettings settings;
   final void Function(int bestWave) onGameOver;
 
+  // Callback for when tower placement fails (for UI feedback)
+  void Function(String reason)? onPlacementFailed;
+
   // UI <-> game selection state
   TdTowerType? placingType;
   TdTower? selectedTower;
 
+  // Pending tower placement (drag to place, then confirm)
+  TdTowerType? _pendingTowerType;
+  int? _pendingTowerCol;
+  int? _pendingTowerRow;
+  double _placementTimeout = 0; // 7 seconds to confirm
+  static const double _placementTimeoutMax = 7.0;
+
+  // Game start countdown
+  bool _gameStarted = false;
+  int _countdownSeconds = 10;
+  double _countdownAccum = 0;
+
   // Expose HUD for overlay widgets.
   final ValueNotifier<TdHudData> hud = ValueNotifier<TdHudData>(
-    const TdHudData(wave: 0, health: 40, maxHealth: 40, cash: 0, paused: true),
+    const TdHudData(
+      wave: 0,
+      health: 40,
+      maxHealth: 40,
+      cash: 0,
+      paused: true,
+      healAmount: 0,
+      healEffectTicks: 0,
+      isBossWave: false,
+    ),
   );
 
   /// Used by Flutter UI overlays to re-render when selection changes.
@@ -53,6 +103,18 @@ class TdGame extends FlameGame with TapCallbacks {
 
   bool _gameOver = false;
   int _bestWave = 0;
+
+  // Getters for pending tower
+  TdTowerType? get pendingTowerType => _pendingTowerType;
+  int? get pendingTowerCol => _pendingTowerCol;
+  int? get pendingTowerRow => _pendingTowerRow;
+  // Only pause game when a tile position is selected (not just tower type)
+  bool get isPlacingTower =>
+      _pendingTowerCol != null && _pendingTowerRow != null;
+  bool get hasSelectedTowerType => placingType != null;
+  bool get gameStarted => _gameStarted;
+  int get countdownSeconds => _countdownSeconds;
+  int get placementTimeoutSeconds => _placementTimeout.ceil();
 
   TdGame({
     required this.mapKey,
@@ -115,6 +177,12 @@ class TdGame extends FlameGame with TapCallbacks {
       maxHealth: _sim!.maxHealth,
       cash: _sim!.cash,
       paused: _sim!.paused,
+      healAmount: _sim!.healAmount,
+      healEffectTicks: _sim!.healEffectTicks,
+      isBossWave: _sim!.isBossWave,
+      towerCount: _sim!.towers.length,
+      maxTowers: TdSim.maxTowers,
+      maxTowersReached: _sim!.maxTowersReached,
     );
   }
 
@@ -146,6 +214,96 @@ class TdGame extends FlameGame with TapCallbacks {
     selectionRevision.value++;
   }
 
+  void sellTowerDirect(TdTower tower) {
+    sim.sellTower(tower);
+    if (selectedTower == tower) {
+      selectedTower = null;
+    }
+    selectionRevision.value++;
+  }
+
+  // Set pending tower position (called when user taps on grid)
+  // Returns true if position was set, false if placement not allowed
+  bool setPendingTowerPosition(int col, int row) {
+    if (_pendingTowerType == null) return false;
+
+    // Check tower limit
+    if (_sim!.towers.length >= TdSim.maxTowers) {
+      onPlacementFailed?.call('Max towers reached');
+      return false;
+    }
+
+    // Check if enemy is on this tile
+    for (final e in _sim!.enemies) {
+      if (e.gridCol == col && e.gridRow == row) {
+        onPlacementFailed?.call('Enemy on this tile');
+        return false;
+      }
+    }
+
+    // Check grid value
+    final g = _sim!.grid[col][row];
+    if (g == 1 || g == 2 || g == 4) {
+      onPlacementFailed?.call('Cannot place on obstacle');
+      return false;
+    }
+
+    // Check if tile is empty
+    if (_sim!.hasTowerAt(col, row)) {
+      onPlacementFailed?.call('Tower already here');
+      return false;
+    }
+
+    // Check if path remains valid
+    if (!_sim!.placeable(col, row)) {
+      onPlacementFailed?.call('Would block enemy path');
+      return false;
+    }
+
+    // All checks passed, set position
+    _pendingTowerCol = col;
+    _pendingTowerRow = row;
+    _placementTimeout = _placementTimeoutMax; // Start 7 second timeout
+    selectionRevision.value++;
+    return true;
+  }
+
+  // Confirm tower placement
+  void confirmPendingTower() {
+    if (_pendingTowerType == null ||
+        _pendingTowerCol == null ||
+        _pendingTowerRow == null)
+      return;
+    _sim!.placeTower(_pendingTowerType!, _pendingTowerCol!, _pendingTowerRow!);
+    _pendingTowerType = null;
+    _pendingTowerCol = null;
+    _pendingTowerRow = null;
+    _placementTimeout = 0;
+    placingType = null;
+    selectionRevision.value++;
+  }
+
+  // Cancel tower placement
+  void cancelPendingTower() {
+    _pendingTowerType = null;
+    _pendingTowerCol = null;
+    _pendingTowerRow = null;
+    _placementTimeout = 0;
+    placingType = null;
+    selectionRevision.value++;
+  }
+
+  // Start placing a tower type
+  void startPlacingTower(TdTowerType type) {
+    _pendingTowerType = type;
+    _pendingTowerCol = null;
+    _pendingTowerRow = null;
+    _placementTimeout = 0;
+    placingType = type;
+    selectedTower = null;
+    selectionRevision.value++;
+  }
+
   @override
   void update(double dt) {
     super.update(dt);
@@ -154,20 +312,69 @@ class TdGame extends FlameGame with TapCallbacks {
     final sim = _sim;
     if (sim == null) return;
 
-    // Run fixed-step simulation.
-    _accum += dt;
-    while (_accum >= kSimSecondsPerTick) {
-      _accum -= kSimSecondsPerTick;
-      sim.step();
-
-      if (!sim.paused) {
-        _bestWave = max(_bestWave, sim.wave);
+    // Handle placement timeout countdown
+    if (_pendingTowerCol != null && _placementTimeout > 0) {
+      _placementTimeout -= dt;
+      if (_placementTimeout <= 0) {
+        // Auto-cancel placement after timeout
+        cancelPendingTower();
       }
+    }
 
-      if (sim.health <= 0 && !_gameOver) {
-        _gameOver = true;
-        onGameOver(_bestWave);
-        break;
+    // Handle countdown before game starts (paused while placing tower)
+    if (!_gameStarted) {
+      // Only countdown if not placing a tower
+      if (!isPlacingTower) {
+        _countdownAccum += dt;
+        if (_countdownAccum >= 1.0) {
+          _countdownAccum -= 1.0;
+          _countdownSeconds--;
+          if (_countdownSeconds <= 0) {
+            _gameStarted = true;
+            sim.paused = false;
+          }
+        }
+      }
+      // Update HUD during countdown
+      hud.value = TdHudData(
+        wave: sim.wave,
+        health: sim.health,
+        maxHealth: sim.maxHealth,
+        cash: sim.cash,
+        paused: sim.paused,
+        healAmount: sim.healAmount,
+        healEffectTicks: sim.healEffectTicks,
+        isBossWave: sim.isBossWave,
+        gameStarted: _gameStarted,
+        countdownSeconds: _countdownSeconds,
+        isPlacingTower: isPlacingTower,
+        pendingTowerCol: _pendingTowerCol,
+        pendingTowerRow: _pendingTowerRow,
+        pendingTowerType: _pendingTowerType,
+        placementTimeoutSeconds: _placementTimeout.ceil(),
+        towerCount: sim.towers.length,
+        maxTowers: TdSim.maxTowers,
+        maxTowersReached: sim.maxTowersReached,
+      );
+      return;
+    }
+
+    // Run fixed-step simulation (paused while placing tower)
+    if (!isPlacingTower) {
+      _accum += dt;
+      while (_accum >= kSimSecondsPerTick) {
+        _accum -= kSimSecondsPerTick;
+        sim.step();
+
+        if (!sim.paused) {
+          _bestWave = max(_bestWave, sim.wave);
+        }
+
+        if (sim.health <= 0 && !_gameOver) {
+          _gameOver = true;
+          onGameOver(_bestWave);
+          break;
+        }
       }
     }
 
@@ -177,6 +384,19 @@ class TdGame extends FlameGame with TapCallbacks {
       maxHealth: sim.maxHealth,
       cash: sim.cash,
       paused: sim.paused,
+      healAmount: sim.healAmount,
+      healEffectTicks: sim.healEffectTicks,
+      isBossWave: sim.isBossWave,
+      gameStarted: _gameStarted,
+      countdownSeconds: _countdownSeconds,
+      isPlacingTower: isPlacingTower,
+      pendingTowerCol: _pendingTowerCol,
+      pendingTowerRow: _pendingTowerRow,
+      pendingTowerType: _pendingTowerType,
+      placementTimeoutSeconds: _placementTimeout.ceil(),
+      towerCount: sim.towers.length,
+      maxTowers: TdSim.maxTowers,
+      maxTowersReached: sim.maxTowersReached,
     );
   }
 
@@ -219,19 +439,23 @@ class TdGame extends FlameGame with TapCallbacks {
     const c2_lightYellow = Color(0xFFFFE8B8);
 
     Color tileColor(dynamic display, int gridValue) {
-      // Grid value 1 = wall (obstacle), 0 = empty/walkable
+      // Grid value 1 = wall (obstacle) - grey color
       if (gridValue == 1) {
-        return const Color(0xFF013243); // Navy blue walls like towerdefense
+        return const Color(0xFF555555); // Grey for obstacles
       }
-      if (display == null) return const Color(0xFF000000);
+      // Grid value 0 = empty/walkable - transparent/no color
+      if (gridValue == 0) {
+        return const Color(0x00000000); // Transparent for empty tiles
+      }
+      if (display == null) return const Color(0x00000000);
       final s = display as String;
       switch (s) {
         case 'empty':
-          return const Color(0xFF000000);
+          return const Color(0x00000000); // Transparent
         case 'grass':
           return grass;
         case 'wall':
-          return const Color(0xFF013243); // Navy blue walls
+          return const Color(0xFF555555); // Grey for walls
         case 'tower':
           return towerTile;
         case 'sidewalk':
@@ -272,7 +496,7 @@ class TdGame extends FlameGame with TapCallbacks {
         case 'c2_lightYellow':
           return c2_lightYellow;
         default:
-          return const Color(0xFF000000);
+          return const Color(0x00000000); // Transparent by default
       }
     }
 
@@ -339,9 +563,8 @@ class TdGame extends FlameGame with TapCallbacks {
       );
     }
 
-    // Exit + spawnpoints - softer colors.
+    // Exit - soft coral color
     final exitPaint = Paint()..color = const Color(0xFFFF8B7B); // Soft coral
-    final spawnPaint = Paint()..color = const Color(0xFF06D6A0); // Mint
     canvas.drawRect(
       Rect.fromLTWH(
         originX + map.exit.x * tileW,
@@ -351,11 +574,14 @@ class TdGame extends FlameGame with TapCallbacks {
       ),
       exitPaint,
     );
-    for (final s in map.spawnpoints) {
+
+    // Pink spawn towers (current positions) - pink color
+    final spawnPaint = Paint()..color = const Color(0xFFFF69B4); // Hot pink
+    for (final st in _sim!.spawnTowers) {
       canvas.drawRect(
         Rect.fromLTWH(
-          originX + s.x * tileW,
-          originY + s.y * tileH,
+          originX + st.col * tileW,
+          originY + st.row * tileH,
           tileW,
           tileH,
         ),
@@ -388,11 +614,13 @@ class TdGame extends FlameGame with TapCallbacks {
     for (final t in _sim!.towers) {
       final cx = originX + t.posX * tileW;
       final cy = originY + t.posY * tileH;
-      final r = t.radiusTiles * tileSizeForRadius;
+      // Scale down to fit within grid cell (towerdefense uses ~0.3-0.4 visual radius)
+      final r = min(tileW, tileH) * 0.35;
 
       // Draw range circle if selected or placing
       if (t == selectedTower || placingType?.key == t.towerType.key) {
-        final rangeRadius = (t.range + 0.5) * tileSizeForRadius * 2;
+        // Range in pixels = range in tiles * tile size
+        final rangeRadius = t.range * tileSizeForRadius;
         canvas.drawCircle(
           Offset(cx, cy),
           rangeRadius,
@@ -426,6 +654,30 @@ class TdGame extends FlameGame with TapCallbacks {
       }
     }
 
+    // Pink spawn points (enemy spawn locations)
+    for (final et in _sim!.spawnTowers) {
+      final left = originX + et.col * tileW;
+      final top = originY + et.row * tileH;
+      final color = et.isBossTower
+          ? const Color(0xFFFF0040) // Bright red for boss spawn point
+          : const Color(0xFFFF69B4); // Hot pink for normal spawn point
+
+      // Draw square spawn point (same shape as player's green base)
+      canvas.drawRect(
+        Rect.fromLTWH(left, top, tileW, tileH),
+        Paint()..color = color,
+      );
+
+      // Draw outline
+      canvas.drawRect(
+        Rect.fromLTWH(left, top, tileW, tileH),
+        Paint()
+          ..color = const Color(0xFFFFFFFF)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2,
+      );
+    }
+
     // Enemies
     for (final e in _sim!.enemies) {
       final cx = originX + e.posX * tileW;
@@ -442,8 +694,13 @@ class TdGame extends FlameGame with TapCallbacks {
       // Draw enemy shape based on type (matching towerdefense)
       _drawEnemy(canvas, e, cx, cy, r, paint);
 
-      // Draw HP bar above enemy
-      _drawHealthBar(canvas, e, cx, cy, r, tileSizeForRadius);
+      // Draw HP bar(s) above enemy
+      if (e.type.key == 'boss') {
+        // Boss has 3 HP bars (main + 2 extra)
+        _drawBossHealthBars(canvas, e, cx, cy, r, tileSizeForRadius);
+      } else {
+        _drawHealthBar(canvas, e, cx, cy, r, tileSizeForRadius);
+      }
     }
 
     // Missiles
@@ -457,7 +714,70 @@ class TdGame extends FlameGame with TapCallbacks {
       );
     }
 
-    // HUD hint: when placing a tower, lightly highlight tap tile in onTapDown.
+    // Highlight pending tower tile
+    if (_pendingTowerCol != null &&
+        _pendingTowerRow != null &&
+        _pendingTowerType != null) {
+      final tileLeft = originX + _pendingTowerCol! * tileW;
+      final tileTop = originY + _pendingTowerRow! * tileH;
+      final tileCenterX = tileLeft + tileW / 2;
+      final tileCenterY = tileTop + tileH / 2;
+
+      // Draw highlighted tile background
+      canvas.drawRect(
+        Rect.fromLTWH(tileLeft, tileTop, tileW, tileH),
+        Paint()
+          ..color = _pendingTowerType!.color.isNotEmpty
+              ? Color.fromARGB(
+                  100,
+                  _pendingTowerType!.color[0],
+                  _pendingTowerType!.color[1],
+                  _pendingTowerType!.color[2],
+                )
+              : const Color(0x64FFD700)
+          ..style = PaintingStyle.fill,
+      );
+
+      // Draw pulsing border
+      final pulseAlpha =
+          (128 +
+                  127 *
+                      (0.5 +
+                          0.5 *
+                              (DateTime.now().millisecondsSinceEpoch % 1000) /
+                              1000))
+              .toInt();
+      canvas.drawRect(
+        Rect.fromLTWH(tileLeft, tileTop, tileW, tileH),
+        Paint()
+          ..color = Color.fromARGB(pulseAlpha, 255, 255, 255)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 3,
+      );
+
+      // Draw range preview
+      final rangeRadius = _pendingTowerType!.range * tileSizeForRadius;
+      canvas.drawCircle(
+        Offset(tileCenterX, tileCenterY),
+        rangeRadius,
+        Paint()
+          ..color = Color.fromARGB(
+            40,
+            _pendingTowerType!.color[0],
+            _pendingTowerType!.color[1],
+            _pendingTowerType!.color[2],
+          )
+          ..style = PaintingStyle.fill,
+      );
+      canvas.drawCircle(
+        Offset(tileCenterX, tileCenterY),
+        rangeRadius,
+        Paint()
+          ..color = const Color(0x80FFFFFF)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1,
+      );
+    }
   }
 
   void _drawEnemy(
@@ -485,6 +805,10 @@ class TdGame extends FlameGame with TapCallbacks {
       case 'taunt':
         // Square with inner squares
         _drawTauntEnemy(canvas, cx, cy, r, paint);
+        break;
+      case 'boss':
+        // Boss - large spiky shape with crown
+        _drawBossEnemy(canvas, cx, cy, r, paint);
         break;
       default:
         // Default circle for weak, strong, medic, stronger, spawner
@@ -588,6 +912,61 @@ class TdGame extends FlameGame with TapCallbacks {
     );
   }
 
+  void _drawBossEnemy(
+    Canvas canvas,
+    double cx,
+    double cy,
+    double r,
+    Paint paint,
+  ) {
+    canvas.save();
+    canvas.translate(cx, cy);
+
+    // Draw spiky star shape
+    final path = Path();
+    final spikes = 8;
+    final outerRadius = r * 1.3;
+    final innerRadius = r * 0.6;
+
+    for (int i = 0; i < spikes * 2; i++) {
+      final angle = (i * pi / spikes) - pi / 2;
+      final radius = i.isEven ? outerRadius : innerRadius;
+      final x = cos(angle) * radius;
+      final y = sin(angle) * radius;
+      if (i == 0) {
+        path.moveTo(x, y);
+      } else {
+        path.lineTo(x, y);
+      }
+    }
+    path.close();
+    canvas.drawPath(path, paint);
+
+    // Draw crown on top
+    final crownPaint = Paint()
+      ..color =
+          const Color(0xFFFFD700) // Gold crown
+      ..style = PaintingStyle.fill;
+
+    final crownPath = Path()
+      ..moveTo(-r * 0.5, -r * 0.8)
+      ..lineTo(-r * 0.25, -r * 1.2)
+      ..lineTo(0, -r * 0.9)
+      ..lineTo(r * 0.25, -r * 1.2)
+      ..lineTo(r * 0.5, -r * 0.8)
+      ..close();
+    canvas.drawPath(crownPath, crownPaint);
+
+    // Draw glowing eyes
+    final eyePaint = Paint()
+      ..color = const Color(0xFFFF0000)
+      ..style = PaintingStyle.fill;
+    canvas.drawCircle(Offset(-r * 0.3, -r * 0.1), r * 0.15, eyePaint);
+    canvas.drawCircle(Offset(r * 0.3, -r * 0.1), r * 0.15, eyePaint);
+
+    canvas.restore();
+  }
+
   void _drawHealthBar(
     Canvas canvas,
     TdEnemy e,
@@ -619,6 +998,83 @@ class TdGame extends FlameGame with TapCallbacks {
       height: barHeight.toDouble(),
     );
     canvas.drawRect(fillRect, Paint()..color = const Color(0xFFCF000F));
+  }
+
+  void _drawBossHealthBars(
+    Canvas canvas,
+    TdEnemy e,
+    double cx,
+    double cy,
+    double r,
+    double tileSize,
+  ) {
+    // Boss has 3 HP bars stacked vertically
+    // Each bar represents 1/3 of total health
+    final barWidth = r * 3.5;
+    final barHeight = max(4, r * 0.35);
+    final totalHealth = e.maxHealth;
+    final healthPerBar = totalHealth / 3;
+
+    for (int i = 0; i < 3; i++) {
+      final barTop = cy - r - barHeight * (3 - i) - 2 * (3 - i);
+      final barStart = healthPerBar * i;
+      final barEnd = healthPerBar * (i + 1);
+
+      // Determine bar color based on position (green -> yellow -> red)
+      final barColor = i == 0
+          ? const Color(0xFF00FF00) // Green for first bar
+          : i == 1
+          ? const Color(0xFFFFFF00) // Yellow for second
+          : const Color(0xFFFF0000); // Red for last
+
+      // Background (white border)
+      canvas.drawRect(
+        Rect.fromCenter(
+          center: Offset(cx, barTop),
+          width: barWidth + 2,
+          height: barHeight + 2,
+        ),
+        Paint()..color = const Color(0xFFFFFFFF),
+      );
+
+      // Calculate fill
+      double fillPercent = 0;
+      if (e.health > barEnd) {
+        fillPercent = 1.0;
+      } else if (e.health > barStart) {
+        fillPercent = (e.health - barStart) / healthPerBar;
+      }
+
+      if (fillPercent > 0) {
+        final fillWidth = (barWidth * fillPercent).toDouble();
+        canvas.drawRect(
+          Rect.fromCenter(
+            center: Offset(cx - (barWidth - fillWidth) / 2, barTop),
+            width: fillWidth,
+            height: barHeight.toDouble(),
+          ),
+          Paint()..color = barColor,
+        );
+      }
+    }
+
+    // Draw "BOSS" text above bars
+    final textPainter = TextPainter(
+      text: TextSpan(
+        text: 'BOSS',
+        style: TextStyle(
+          color: const Color(0xFFFF00FF),
+          fontSize: r * 0.8,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    );
+    textPainter.layout();
+    textPainter.paint(
+      canvas,
+      Offset(cx - textPainter.width / 2, cy - r - barHeight * 4 - 10),
+    );
   }
 
   void _drawTower(
@@ -822,15 +1278,9 @@ class TdGame extends FlameGame with TapCallbacks {
       return;
     }
 
-    if (placingType != null) {
-      if (_sim!.canPlaceTower(placingType!, col, row)) {
-        _sim!.placeTower(placingType!, col, row);
-        // Select the newly placed tower.
-        final placed = _sim!.getTowerAt(col, row);
-        selectedTower = placed;
-        placingType = null;
-        hud.value = hud.value;
-      }
+    // If we have a pending tower type, set the position
+    if (_pendingTowerType != null) {
+      setPendingTowerPosition(col, row);
     }
   }
 }

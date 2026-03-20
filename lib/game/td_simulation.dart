@@ -75,14 +75,24 @@ class TdSim {
 
   final List<String> newEnemies = [];
 
+  // Boss mechanics
+  int bossesDefeated = 0;
+  bool isBossWave = false;
+  bool bossSpawned = false;
+  TdEnemy? currentBoss;
+
+  // Pink Towers - visual representation of spawnpoints (teleport every 2 waves, one becomes boss tower every 5 waves)
+  final List<TdEnemyTower> spawnTowers = [];
+  int lastTeleportWave = 0;
+  TdEnemyTower? bossTower; // Which tower is currently the boss tower
+
+  // Tower limit
+  static const int maxTowers = 21;
+
   // cached for placement / BFS
   late List<List<bool>> walkableCache;
 
-  TdSim({
-    required this.baseMap,
-    required this.rng,
-    required this.cash,
-  }) {
+  TdSim({required this.baseMap, required this.rng, required this.cash}) {
     grid = _deepCopy2D(baseMap.grid);
     paths = _deepCopy2D(baseMap.paths);
     exit = baseMap.exit;
@@ -118,7 +128,149 @@ class TdSim {
     missiles.clear();
     tempSpawns.clear();
     newEnemies.clear();
+
+    // Boss mechanics reset
+    bossesDefeated = 0;
+    isBossWave = false;
+    bossSpawned = false;
+    currentBoss = null;
+    bossTower = null;
+    spawnTowers.clear();
+    lastTeleportWave = 0;
+
+    // Spawn initial spawn towers (2 towers)
+    _spawnSpawnTowers();
+
     nextWave();
+  }
+
+  void _spawnSpawnTowers() {
+    // Convert map spawnpoints to Pink Towers (enemy spawn towers)
+    // These are the original map spawn locations
+    for (final sp in spawnpoints) {
+      spawnTowers.add(TdEnemyTower(col: sp.x, row: sp.y));
+    }
+  }
+
+  void _teleportSpawnTowers() {
+    // Save old positions before teleporting
+    final oldPositions = <TdCoord>[];
+    for (final tower in spawnTowers) {
+      oldPositions.add(TdCoord(tower.col, tower.row));
+    }
+
+    // First, temporarily mark old positions as walkable for path calculation
+    for (final oldPos in oldPositions) {
+      grid[oldPos.x][oldPos.y] = 0; // Make old positions walkable temporarily
+    }
+
+    // Recalculate paths to know which tiles are reachable from exit
+    recalculate();
+
+    // Define "near exit" as within 3 tiles of exit
+    const nearExitDistance = 3;
+    bool nearExitTileAssigned = false;
+
+    // Separate tiles into "near exit" and "far from exit"
+    final nearExitTiles = <TdCoord>[];
+    final farTiles = <TdCoord>[];
+
+    for (int c = 0; c < baseMap.cols; c++) {
+      for (int r = 0; r < baseMap.rows; r++) {
+        // Must be walkable (grid value 0), not exit, and have a valid path
+        if (grid[c][r] == 0 && !(exit.x == c && exit.y == r)) {
+          // Check if this tile has a valid path to exit (paths[c][r] != 0)
+          if (paths[c][r] != 0) {
+            // Also exclude current tower positions
+            bool isTowerPos = false;
+            for (final t in spawnTowers) {
+              if (t.col == c && t.row == r) {
+                isTowerPos = true;
+                break;
+              }
+            }
+            if (!isTowerPos) {
+              // Calculate Manhattan distance to exit
+              final distToExit = (exit.x - c).abs() + (exit.y - r).abs();
+              if (distToExit <= nearExitDistance) {
+                nearExitTiles.add(TdCoord(c, r));
+              } else {
+                farTiles.add(TdCoord(c, r));
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // 30% chance that one tower spawns near exit, 70% chance all random
+    final bool shouldSpawnNearExit = rng.nextDouble() < 0.3;
+
+    // Assign positions
+    nearExitTiles.shuffle(rng);
+    farTiles.shuffle(rng);
+
+    for (int i = 0; i < spawnTowers.length; i++) {
+      if (shouldSpawnNearExit &&
+          !nearExitTileAssigned &&
+          nearExitTiles.isNotEmpty) {
+        // 30% case: Assign one tower to near-exit position (slow enemies)
+        final nearTile = nearExitTiles.removeAt(0);
+        spawnTowers[i].col = nearTile.x;
+        spawnTowers[i].row = nearTile.y;
+        spawnTowers[i].isNearExit = true;
+        nearExitTileAssigned = true;
+      } else {
+        // 70% case: Random position (anywhere), or remaining towers in 30% case
+        // Combine all remaining tiles for random selection
+        final allTiles = [...farTiles, ...nearExitTiles];
+        allTiles.shuffle(rng);
+
+        if (allTiles.isNotEmpty) {
+          final tile = allTiles.removeAt(0);
+          spawnTowers[i].col = tile.x;
+          spawnTowers[i].row = tile.y;
+          // Mark as near exit if it's within near-exit distance (applies to both 30% and 70% cases)
+          final distToExit = (exit.x - tile.x).abs() + (exit.y - tile.y).abs();
+          spawnTowers[i].isNearExit = distToExit <= nearExitDistance;
+
+          // Remove from appropriate list
+          if (distToExit <= nearExitDistance) {
+            nearExitTiles.removeWhere((t) => t.x == tile.x && t.y == tile.y);
+          } else {
+            farTiles.removeWhere((t) => t.x == tile.x && t.y == tile.y);
+          }
+        }
+      }
+    }
+
+    // Convert old positions to either empty (0) or obstacle (1)
+    for (final oldPos in oldPositions) {
+      // Don't change if a tower is still there
+      bool hasTower = false;
+      for (final t in spawnTowers) {
+        if (t.col == oldPos.x && t.row == oldPos.y) {
+          hasTower = true;
+          break;
+        }
+      }
+      if (!hasTower) {
+        // Randomly make it empty or obstacle
+        grid[oldPos.x][oldPos.y] = rng.nextBool() ? 0 : 1;
+      }
+    }
+
+    // Recalculate paths after grid changes
+    recalculate();
+  }
+
+  void _convertToBossTower() {
+    // Convert one spawn tower to boss tower
+    if (spawnTowers.isNotEmpty) {
+      final bt = spawnTowers[rng.nextInt(spawnTowers.length)];
+      bt.isBossTower = true;
+      bossTower = bt;
+    }
   }
 
   void togglePause() {
@@ -126,10 +278,89 @@ class TdSim {
   }
 
   void nextWave() {
-    final pattern = randomWave();
-    addWave(pattern);
     wave++;
+
+    // Check if this is a boss wave (every 5 waves)
+    if (wave % 5 == 0) {
+      isBossWave = true;
+      bossSpawned = false;
+      _convertToBossTower();
+      // Boss spawns immediately at wave start
+      spawnBoss();
+      // No regular enemies during boss wave
+      newEnemies.clear();
+      spawnCool = 0;
+    } else {
+      isBossWave = false;
+      bossSpawned = false;
+      currentBoss = null;
+      // Reset boss tower status after boss wave
+      bossTower?.isBossTower = false;
+      bossTower = null;
+
+      // Teleport Pink Towers every 2 waves (only on non-boss waves)
+      if (wave % 2 == 0 && wave != lastTeleportWave) {
+        _teleportSpawnTowers();
+        lastTeleportWave = wave;
+      }
+
+      final pattern = randomWave();
+      addWave(pattern);
+    }
   }
+
+  void spawnBoss() {
+    if (bossSpawned || !isBossWave || bossTower == null) return;
+
+    // Ensure boss tower position has a valid path
+    final bossCol = bossTower!.col;
+    final bossRow = bossTower!.row;
+
+    // If boss tower position doesn't have a valid path, find one
+    if (paths[bossCol][bossRow] == 0) {
+      // Find a spawn tower with a valid path
+      for (final st in spawnTowers) {
+        if (paths[st.col][st.row] != 0) {
+          bossTower = st;
+          st.isBossTower = true;
+          break;
+        }
+      }
+    }
+
+    // Spawn boss from the boss tower
+    currentBoss = TdEnemy(
+      posX: bossTower!.col + 0.5,
+      posY: bossTower!.row + 0.5,
+      type: enemyTypes['boss']!,
+    );
+    // Boost boss stats based on how many bosses defeated
+    currentBoss!.health *= (1 + bossesDefeated * 0.5);
+    currentBoss!.maxHealth = currentBoss!.health;
+    enemies.add(currentBoss!);
+    bossSpawned = true;
+  }
+
+  void onBossDefeated() {
+    bossesDefeated++;
+    currentBoss = null;
+    bossSpawned = false;
+    isBossWave = false;
+
+    // Heal player by 10 HP
+    final oldHealth = health;
+    health = min(maxHealth, health + 10);
+    healAmount = health - oldHealth; // For visual effect
+    healEffectTicks = 60; // Show heal effect for 60 ticks (0.5 seconds)
+
+    // Revert boss tower back to normal spawn tower
+    bossTower?.isBossTower = false;
+    bossTower = null;
+  }
+
+  // Heal effect state
+  int healAmount = 0;
+  int healEffectTicks = 0;
 
   bool get noMoreEnemies => enemies.isEmpty && newEnemies.isEmpty;
 
@@ -172,108 +403,278 @@ class TdSim {
     void push(List<dynamic> pattern) => waves.add(pattern);
 
     if (isWave(0, 3)) {
-      push([40, ['weak', 50]]);
+      push([
+        40,
+        ['weak', 50],
+      ]);
     }
     if (isWave(2, 4)) {
-      push([20, ['weak', 25]]);
+      push([
+        20,
+        ['weak', 25],
+      ]);
     }
     if (isWave(2, 7)) {
-      push([30, ['weak', 25], ['strong', 25]]);
-      push([20, ['strong', 25]]);
+      push([
+        30,
+        ['weak', 25],
+        ['strong', 25],
+      ]);
+      push([
+        20,
+        ['strong', 25],
+      ]);
     }
     if (isWave(3, 7)) {
-      push([40, ['fast', 25]]);
+      push([
+        40,
+        ['fast', 25],
+      ]);
     }
     if (isWave(4, 14)) {
-      push([20, ['fast', 50]]);
+      push([
+        20,
+        ['fast', 50],
+      ]);
     }
     if (isWave(5, 6)) {
-      push([20, ['strong', 50], ['fast', 25]]);
+      push([
+        20,
+        ['strong', 50],
+        ['fast', 25],
+      ]);
     }
     if (isWave(8, 12)) {
-      push([20, ['medic', 'strong', 'strong', 25]]);
+      push([
+        20,
+        ['medic', 'strong', 'strong', 25],
+      ]);
     }
     if (isWave(10, 13)) {
-      push([20, ['medic', 'strong', 'strong', 50]]);
-      push([30, ['medic', 'strong', 'strong', 50], ['fast', 50]]);
-      push([5, ['fast', 50]]);
+      push([
+        20,
+        ['medic', 'strong', 'strong', 50],
+      ]);
+      push([
+        30,
+        ['medic', 'strong', 'strong', 50],
+        ['fast', 50],
+      ]);
+      push([
+        5,
+        ['fast', 50],
+      ]);
     }
     if (isWave(12, 16)) {
-      push([20, ['medic', 'strong', 'strong', 50], ['strongFast', 50]]);
-      push([10, ['strong', 50], ['strongFast', 50]]);
-      push([10, ['medic', 'strongFast', 50]]);
-      push([10, ['strong', 25], ['stronger', 25], ['strongFast', 50]]);
-      push([10, ['strong', 25], ['medic', 25], ['strongFast', 50]]);
-      push([20, ['medic', 'stronger', 'stronger', 50]]);
-      push([10, ['medic', 'stronger', 'strong', 50]]);
-      push([10, ['medic', 'strong', 50], ['medic', 'strongFast', 50]]);
-      push([5, ['strongFast', 100]]);
-      push([20, ['stronger', 50]]);
+      push([
+        20,
+        ['medic', 'strong', 'strong', 50],
+        ['strongFast', 50],
+      ]);
+      push([
+        10,
+        ['strong', 50],
+        ['strongFast', 50],
+      ]);
+      push([
+        10,
+        ['medic', 'strongFast', 50],
+      ]);
+      push([
+        10,
+        ['strong', 25],
+        ['stronger', 25],
+        ['strongFast', 50],
+      ]);
+      push([
+        10,
+        ['strong', 25],
+        ['medic', 25],
+        ['strongFast', 50],
+      ]);
+      push([
+        20,
+        ['medic', 'stronger', 'stronger', 50],
+      ]);
+      push([
+        10,
+        ['medic', 'stronger', 'strong', 50],
+      ]);
+      push([
+        10,
+        ['medic', 'strong', 50],
+        ['medic', 'strongFast', 50],
+      ]);
+      push([
+        5,
+        ['strongFast', 100],
+      ]);
+      push([
+        20,
+        ['stronger', 50],
+      ]);
     }
     if (isWave(13, 20)) {
-      push([40, ['tank', 'stronger', 'stronger', 'stronger', 10]]);
-      push([10, ['medic', 'stronger', 'stronger', 50]]);
-      push([40, ['tank', 25]]);
-      push([20, ['tank', 'stronger', 'stronger', 50]]);
-      push([20, ['tank', 'medic', 50], ['strongFast', 25]]);
+      push([
+        40,
+        ['tank', 'stronger', 'stronger', 'stronger', 10],
+      ]);
+      push([
+        10,
+        ['medic', 'stronger', 'stronger', 50],
+      ]);
+      push([
+        40,
+        ['tank', 25],
+      ]);
+      push([
+        20,
+        ['tank', 'stronger', 'stronger', 50],
+      ]);
+      push([
+        20,
+        ['tank', 'medic', 50],
+        ['strongFast', 25],
+      ]);
     }
     if (isWave(14, 20)) {
-      push([20, ['tank', 'stronger', 'stronger', 50]]);
-      push([20, ['tank', 'medic', 'medic', 50]]);
-      push([20, ['tank', 'medic', 50], ['strongFast', 25]]);
-      push([10, ['tank', 50], ['strongFast', 25]]);
-      push([10, ['faster', 50]]);
-      push([20, ['tank', 50], ['faster', 25]]);
+      push([
+        20,
+        ['tank', 'stronger', 'stronger', 50],
+      ]);
+      push([
+        20,
+        ['tank', 'medic', 'medic', 50],
+      ]);
+      push([
+        20,
+        ['tank', 'medic', 50],
+        ['strongFast', 25],
+      ]);
+      push([
+        10,
+        ['tank', 50],
+        ['strongFast', 25],
+      ]);
+      push([
+        10,
+        ['faster', 50],
+      ]);
+      push([
+        20,
+        ['tank', 50],
+        ['faster', 25],
+      ]);
     }
     if (isWave(17, 25)) {
-      push([20, ['taunt', 'stronger', 'stronger', 'stronger', 25]]);
-      push([20, ['spawner', 'stronger', 'stronger', 'stronger', 25]]);
-      push([20, ['taunt', 'tank', 'tank', 'tank', 25]]);
-      push([40, ['taunt', 'tank', 'tank', 'tank', 25]]);
+      push([
+        20,
+        ['taunt', 'stronger', 'stronger', 'stronger', 25],
+      ]);
+      push([
+        20,
+        ['spawner', 'stronger', 'stronger', 'stronger', 25],
+      ]);
+      push([
+        20,
+        ['taunt', 'tank', 'tank', 'tank', 25],
+      ]);
+      push([
+        40,
+        ['taunt', 'tank', 'tank', 'tank', 25],
+      ]);
     }
     if (isWave(19)) {
-      push([20, ['spawner', 1], ['tank', 20], ['stronger', 25]]);
-      push([20, ['spawner', 1], ['faster', 25]]);
+      push([
+        20,
+        ['spawner', 1],
+        ['tank', 20],
+        ['stronger', 25],
+      ]);
+      push([
+        20,
+        ['spawner', 1],
+        ['faster', 25],
+      ]);
     }
     if (isWave(23)) {
-      push([20, ['taunt', 'medic', 'tank', 25]]);
-      push([20, ['spawner', 2], ['taunt', 'medic', 'tank', 25]]);
-      push([10, ['spawner', 1], ['faster', 100]]);
-      push([5, ['faster', 100]]);
+      push([
+        20,
+        ['taunt', 'medic', 'tank', 25],
+      ]);
+      push([
+        20,
+        ['spawner', 2],
+        ['taunt', 'medic', 'tank', 25],
+      ]);
+      push([
+        10,
+        ['spawner', 1],
+        ['faster', 100],
+      ]);
+      push([
+        5,
+        ['faster', 100],
+      ]);
       push([
         20,
         ['tank', 100],
         ['faster', 50],
-        ['taunt', 'tank', 'tank', 'tank', 50]
+        ['taunt', 'tank', 'tank', 'tank', 50],
       ]);
       push([
         10,
         ['taunt', 'stronger', 'tank', 'stronger', 50],
-        ['faster', 50]
+        ['faster', 50],
       ]);
     }
     if (isWave(25)) {
-      push([5, ['taunt', 'medic', 'tank', 50], ['faster', 50]]);
-      push([5, ['taunt', 'faster', 'faster', 'faster', 50]]);
+      push([
+        5,
+        ['taunt', 'medic', 'tank', 50],
+        ['faster', 50],
+      ]);
+      push([
+        5,
+        ['taunt', 'faster', 'faster', 'faster', 50],
+      ]);
       push([
         10,
         ['taunt', 'tank', 'tank', 'tank', 50],
-        ['faster', 50]
+        ['faster', 50],
       ]);
     }
     if (isWave(30)) {
-      push([5, ['taunt', 'faster', 'faster', 'faster', 50]]);
-      push([5, ['taunt', 'tank', 'tank', 'tank', 50]]);
-      push([5, ['taunt', 'medic', 'tank', 'tank', 50]]);
-      push([1, ['faster', 200]]);
+      push([
+        5,
+        ['taunt', 'faster', 'faster', 'faster', 50],
+      ]);
+      push([
+        5,
+        ['taunt', 'tank', 'tank', 'tank', 50],
+      ]);
+      push([
+        5,
+        ['taunt', 'medic', 'tank', 'tank', 50],
+      ]);
+      push([
+        1,
+        ['faster', 200],
+      ]);
     }
     if (isWave(35)) {
-      push([0, ['taunt', 'faster', 200]]);
+      push([
+        0,
+        ['taunt', 'faster', 200],
+      ]);
     }
 
     if (waves.isEmpty) {
       // Fallback in case we missed a wave window.
-      return [40, ['weak', 50]];
+      return [
+        40,
+        ['weak', 50],
+      ];
     }
 
     return waves[rng.nextInt(waves.length)];
@@ -287,13 +688,18 @@ class TdSim {
     return t;
   }
 
-  TdEnemy createEnemyAt(TdCoord c, String name) {
+  TdEnemy createEnemyAt(
+    TdCoord c,
+    String name, {
+    double speedMultiplier = 1.0,
+  }) {
     final type = _enemyType(name);
-    return TdEnemy(
-      posX: c.x + 0.5,
-      posY: c.y + 0.5,
-      type: type,
-    );
+    final enemy = TdEnemy(posX: c.x + 0.5, posY: c.y + 0.5, type: type);
+    // Apply speed multiplier (for near-exit towers)
+    if (speedMultiplier != 1.0) {
+      enemy.speed *= speedMultiplier;
+    }
+    return enemy;
   }
 
   /// One simulation tick (120Hz steps).
@@ -305,26 +711,22 @@ class TdSim {
       if (toWait && wcd > 0) wcd--;
     }
 
-    // Spawn enemies
+    // Spawn enemies from Pink Tower positions
     if (!paused && canSpawn()) {
       final name = newEnemies.removeAt(0);
-      for (final s in spawnpoints) {
-        enemies.add(createEnemyAt(s, name));
-      }
-      for (int i = tempSpawns.length - 1; i >= 0; i--) {
-        final ts = tempSpawns[i];
-        if (ts.remaining <= 0) continue;
-        ts.remaining--;
-        if (ts.remaining <= 0) {
-          // It still spawned on this cycle, so remove after processing.
-        }
-        enemies.add(createEnemyAt(ts.pos, name));
+      for (final tower in spawnTowers) {
+        // Enemies from near-exit towers move at 60% speed
+        final speedMultiplier = tower.isNearExit ? 0.6 : 1.0;
+        enemies.add(
+          createEnemyAt(
+            TdCoord(tower.col, tower.row),
+            name,
+            speedMultiplier: speedMultiplier,
+          ),
+        );
       }
       scd = spawnCool;
     }
-
-    // Remove expired temp spawnpoints.
-    tempSpawns.removeWhere((t) => t.remaining <= 0);
 
     // Update enemies
     for (int i = enemies.length - 1; i >= 0; i--) {
@@ -334,15 +736,22 @@ class TdSim {
       }
 
       // Kill if outside.
-      if (e.posX < 0 || e.posY < 0 || e.posX >= baseMap.cols || e.posY >= baseMap.rows) {
+      if (e.posX < 0 ||
+          e.posY < 0 ||
+          e.posX >= baseMap.cols ||
+          e.posY >= baseMap.rows) {
         enemies.removeAt(i);
       } else if (e.isAlive && _atTileCenter(e.posX, e.posY, exit.x, exit.y)) {
-        // Exit reached
+        // Exit reached - deal damage but DON'T remove boss
         if (!paused) {
           health -= e.damage;
         }
-        e.alive = false;
-        enemies.removeAt(i);
+        // Regular enemies die after reaching exit
+        // Boss stays and continues attacking
+        if (e.type.key != 'boss') {
+          e.alive = false;
+          enemies.removeAt(i);
+        }
       } else if (!e.isAlive) {
         enemies.removeAt(i);
       }
@@ -380,6 +789,11 @@ class TdSim {
         wcd = 0;
         nextWave();
       }
+    }
+
+    // Update heal effect timer
+    if (healEffectTicks > 0) {
+      healEffectTicks--;
     }
 
     // Auto-recalculate when towers were placed/sold (caller sets this).
@@ -451,8 +865,11 @@ class TdSim {
     }
 
     // Build distance + path direction maps.
-    final newPaths =
-        List<List<int>>.generate(cols, (_) => List<int>.filled(rows, 0), growable: false);
+    final newPaths = List<List<int>>.generate(
+      cols,
+      (_) => List<int>.filled(rows, 0),
+      growable: false,
+    );
     dists = List<List<int?>>.generate(
       cols,
       (_) => List<int?>.filled(rows, null, growable: false),
@@ -562,23 +979,32 @@ class TdSim {
       }
     }
 
-    // Check spawnpoints reachable.
-    for (final s in spawnpoints) {
-      if (!visited[s.x][s.y]) return false;
-    }
-
     // Check current enemies reachable (except those already on candidate).
+    // Only check if enemy is within bounds of visited array
     for (final e in enemies) {
       final ec = e.gridCol;
       final er = e.gridRow;
+      // Skip if out of bounds
+      if (ec < 0 || er < 0 || ec >= cols || er >= rows) continue;
       if (ec == col && er == row) continue;
-      if (!visited[ec][er]) return false;
+      // Only fail if enemy is on a walkable tile but not reachable
+      if (walk[ec][er] && !visited[ec][er]) return false;
     }
 
     return true;
   }
 
   bool canPlaceTower(TdTowerType towerType, int col, int row) {
+    // Check tower limit
+    if (towers.length >= maxTowers) return false;
+
+    // Check if an enemy is currently on this tile
+    for (final e in enemies) {
+      if (e.gridCol == col && e.gridRow == row) {
+        return false; // Can't place tower on enemy position
+      }
+    }
+
     // Port of canPlace() from JS.
     final g = grid[col][row];
     if (g == 3) return true;
@@ -588,13 +1014,11 @@ class TdSim {
     return true;
   }
 
+  bool get maxTowersReached => towers.length >= maxTowers;
+
   void placeTower(TdTowerType towerType, int col, int row) {
     if (!canPlaceTower(towerType, col, row)) return;
-    final tower = TdTower(
-      towerType: towerType,
-      col: col,
-      row: row,
-    );
+    final tower = TdTower(towerType: towerType, col: col, row: row);
     towers.add(tower);
     recalculate();
   }
@@ -637,7 +1061,11 @@ class TdSim {
     return chosen;
   }
 
-  TdEnemy? getNearestTarget(List<TdEnemy> enemies, TdEnemy from, List<TdEnemy> ignore) {
+  TdEnemy? getNearestTarget(
+    List<TdEnemy> enemies,
+    TdEnemy from,
+    List<TdEnemy> ignore,
+  ) {
     TdEnemy? best;
     double bestD2 = double.infinity;
     for (final e in enemies) {
@@ -654,21 +1082,25 @@ class TdSim {
   }
 
   List<TdEnemy> enemiesInRange(double cx, double cy, int radiusTiles) {
-    // JS: getInRange uses insideCircle with (radius + 1) * ts.
-    final r = radiusTiles + 1;
-    final r2 = (r * r).toDouble();
+    // Use exact radius - no +1 padding
+    final r = radiusTiles.toDouble();
+    final r2 = r * r;
     final res = <TdEnemy>[];
     for (final e in enemies) {
       final dx = e.posX - cx;
       final dy = e.posY - cy;
-      if (dx * dx + dy * dy < r2) {
+      if (dx * dx + dy * dy <= r2) {
         res.add(e);
       }
     }
     return res;
   }
 
-  List<TdEnemy> enemiesInExplosionRange(double cx, double cy, double blastRadiusTiles) {
+  List<TdEnemy> enemiesInExplosionRange(
+    double cx,
+    double cy,
+    double blastRadiusTiles,
+  ) {
     // JS: getInRange uses (radius + 1) tiles.
     final r = blastRadiusTiles + 1;
     final r2 = r * r;
@@ -682,7 +1114,9 @@ class TdSim {
   }
 
   static List<List<int>> _deepCopy2D(List<List<int>> src) {
-    return src.map((col) => col.toList(growable: false)).toList(growable: false);
+    return src
+        .map((col) => col.toList(growable: false))
+        .toList(growable: false);
   }
 }
 
@@ -694,6 +1128,7 @@ class TdEnemyType {
   final int cash;
   final double speed; // tiles-per-step*24 scale, matches JS speed.
   final double health;
+  final int damage; // Damage dealt to player when reaching exit
 
   final List<String> immune;
   final List<String> resistant;
@@ -711,6 +1146,7 @@ class TdEnemyType {
     required this.cash,
     required this.speed,
     required this.health,
+    this.damage = 1,
     this.immune = const [],
     this.resistant = const [],
     this.weak = const [],
@@ -813,6 +1249,18 @@ final Map<String, TdEnemyType> enemyTypes = {
     health: 1150,
     spawnerTick: true,
   ),
+  'boss': TdEnemyType(
+    key: 'boss',
+    color: [255, 0, 128], // Magenta/pink for boss
+    radiusTiles: 1.5,
+    cash: 50,
+    speed: 0.5, // Slow but powerful
+    health: 5000,
+    damage: 5, // Boss deals 5 damage per hit
+    immune: ['poison', 'slow'],
+    resistant: ['physical', 'energy'],
+    weak: ['explosion', 'piercing'],
+  ),
 };
 
 class TdEnemy {
@@ -825,7 +1273,7 @@ class TdEnemy {
 
   bool alive = true;
 
-  final int damage = 1;
+  int get damage => type.damage;
 
   late double health;
   late double maxHealth;
@@ -833,11 +1281,7 @@ class TdEnemy {
 
   final List<_EnemyEffect> effects = [];
 
-  TdEnemy({
-    required this.posX,
-    required this.posY,
-    required this.type,
-  }) {
+  TdEnemy({required this.posX, required this.posY, required this.type}) {
     health = type.health;
     maxHealth = health;
     speed = type.speed;
@@ -878,7 +1322,12 @@ class TdEnemy {
     if (!alive) return;
 
     double mult = 1.0;
-    if (typeName == 'physical' || typeName == 'energy' || typeName == 'slow' || typeName == 'poison' || typeName == 'explosion' || typeName == 'piercing') {
+    if (typeName == 'physical' ||
+        typeName == 'energy' ||
+        typeName == 'slow' ||
+        typeName == 'poison' ||
+        typeName == 'explosion' ||
+        typeName == 'piercing') {
       if (type.immune.contains(typeName)) {
         mult = 0.0;
       } else if (type.resistant.contains(typeName)) {
@@ -909,6 +1358,11 @@ class TdEnemy {
     alive = false;
     sim.cash += type.cash;
 
+    // Check if boss was defeated
+    if (type.key == 'boss' && sim.currentBoss == this) {
+      sim.onBossDefeated();
+    }
+
     if (type.spawnerTick) {
       final c = TdCoord(gridCol, gridRow);
       if (c == sim.exit) return;
@@ -937,8 +1391,11 @@ class TdEnemy {
 
     // Medic periodically applies regen to nearby enemies.
     if (type.medicTick) {
-      final affected =
-          sim.enemiesInExplosionRange(posX, posY, 2); // radius tiles, JS uses getInRange(radius=2) => effective=3
+      final affected = sim.enemiesInExplosionRange(
+        posX,
+        posY,
+        2,
+      ); // radius tiles, JS uses getInRange(radius=2) => effective=3
       for (final other in affected) {
         other.applyEffect('regen', 1);
       }
@@ -948,7 +1405,11 @@ class TdEnemy {
     if (_atTileCenter(posX, posY, gridCol, gridRow)) {
       final col = gridCol;
       final row = gridRow;
-      if (col < 0 || row < 0 || col >= sim.baseMap.cols || row >= sim.baseMap.rows) return;
+      if (col < 0 ||
+          row < 0 ||
+          col >= sim.baseMap.cols ||
+          row >= sim.baseMap.rows)
+        return;
       final dir = sim.paths[col][row];
       if (dir == 1) {
         velX = -(speed / 24.0);
@@ -981,8 +1442,8 @@ class _EnemyEffect {
   _EnemyEffect.simple({required this.name, required this.duration});
 
   _EnemyEffect.slow({required int duration, required this.oldSpeed})
-      : name = 'slow',
-        duration = duration;
+    : name = 'slow',
+      duration = duration;
 
   void onTick(TdEnemy e, TdSim sim) {
     if (name == 'poison') {
@@ -1007,6 +1468,26 @@ class TdTempSpawn {
   final TdCoord pos;
   int remaining;
   TdTempSpawn({required this.pos, required this.remaining});
+}
+
+// Enemy tower that spawns enemies and moves every 2 waves
+class TdEnemyTower {
+  int col;
+  int row;
+  bool isBossTower;
+  bool isNearExit; // If true, enemies from this tower move at 60% speed
+  int health;
+  int maxHealth;
+
+  TdEnemyTower({
+    required this.col,
+    required this.row,
+    this.isBossTower = false,
+    this.isNearExit = false,
+    this.health = 100,
+  }) : maxHealth = health;
+
+  bool get isAlive => health > 0;
 }
 
 class TdTowerType {
@@ -1109,24 +1590,21 @@ class TdTower {
   bool upgraded = false;
   TowerUpgrade? upgrade;
 
-  TdTower({
-    required this.towerType,
-    required this.col,
-    required this.row,
-  })  : posX = col + 0.5,
-        posY = row + 0.5,
-        cooldownMin = towerType.cooldownMin,
-        cooldownMax = towerType.cooldownMax,
-        damageMin = towerType.damageMin,
-        damageMax = towerType.damageMax,
-        range = towerType.range,
-        type = towerType.type,
-        color = towerType.color,
-        secondary = towerType.secondary,
-        radiusTiles = towerType.radiusTiles,
-        totalCost = towerType.cost.toDouble(),
-        _localRng = Random(),
-        upgrade = towerType.upgrade {
+  TdTower({required this.towerType, required this.col, required this.row})
+    : posX = col + 0.5,
+      posY = row + 0.5,
+      cooldownMin = towerType.cooldownMin,
+      cooldownMax = towerType.cooldownMax,
+      damageMin = towerType.damageMin,
+      damageMax = towerType.damageMax,
+      range = towerType.range,
+      type = towerType.type,
+      color = towerType.color,
+      secondary = towerType.secondary,
+      radiusTiles = towerType.radiusTiles,
+      totalCost = towerType.cost.toDouble(),
+      _localRng = Random(),
+      upgrade = towerType.upgrade {
     cd = 0;
   }
 
@@ -1168,7 +1646,9 @@ class TdTower {
 
     TdEnemy? target;
     if (towerType.isSniper) {
-      target = taunting.isNotEmpty ? sim.getStrongestTarget(taunting) : sim.getStrongestTarget(inRange);
+      target = taunting.isNotEmpty
+          ? sim.getStrongestTarget(taunting)
+          : sim.getStrongestTarget(inRange);
     } else {
       final candidates = taunting.isNotEmpty ? taunting : inRange;
       target = sim.getFirstTarget(candidates);
@@ -1233,7 +1713,11 @@ class TdTower {
   }
 
   void _fireDirectDamage(TdSim sim, TdEnemy target) {
-    final dmg = _randIntInclusive(sim.rng, damageMin.round(), damageMax.round()).toDouble();
+    final dmg = _randIntInclusive(
+      sim.rng,
+      damageMin.round(),
+      damageMax.round(),
+    ).toDouble();
     // JS uses round(random(min,max)) which rounds both sides; we approximate.
     target.dealDamage(dmg, type, sim);
   }
@@ -1255,18 +1739,34 @@ class TdTower {
 
   void _fireRailgunBlast(TdSim sim, TdEnemy target) {
     const blastRadius = 1.0;
-    final inRadius = sim.enemiesInExplosionRange(target.posX, target.posY, blastRadius);
+    final inRadius = sim.enemiesInExplosionRange(
+      target.posX,
+      target.posY,
+      blastRadius,
+    );
     for (final e in inRadius) {
-      final amt = _randIntInclusive(sim.rng, damageMin.round(), damageMax.round()).toDouble();
+      final amt = _randIntInclusive(
+        sim.rng,
+        damageMin.round(),
+        damageMax.round(),
+      ).toDouble();
       e.dealDamage(amt, type, sim);
     }
   }
 
   void _fireBombBlast(TdSim sim, TdEnemy target) {
     const blastRadius = 1.0;
-    final inRadius = sim.enemiesInExplosionRange(target.posX, target.posY, blastRadius);
+    final inRadius = sim.enemiesInExplosionRange(
+      target.posX,
+      target.posY,
+      blastRadius,
+    );
     for (final e in inRadius) {
-      final amt = _randIntInclusive(sim.rng, damageMin.round(), damageMax.round()).toDouble();
+      final amt = _randIntInclusive(
+        sim.rng,
+        damageMin.round(),
+        damageMax.round(),
+      ).toDouble();
       e.dealDamage(amt, type, sim);
     }
   }
@@ -1283,7 +1783,11 @@ class TdTower {
 
       final inRadius = sim.enemiesInExplosionRange(x, y, blastRadius);
       for (final e in inRadius) {
-        final amt = _randIntInclusive(sim.rng, damageMin.round(), damageMax.round()).toDouble();
+        final amt = _randIntInclusive(
+          sim.rng,
+          damageMin.round(),
+          damageMax.round(),
+        ).toDouble();
         e.dealDamage(amt, type, sim);
       }
     }
@@ -1307,7 +1811,11 @@ class TdTower {
   }
 
   void _fireTesla(TdSim sim, TdEnemy target) {
-    var dmg = _randIntInclusive(sim.rng, damageMin.round(), damageMax.round()).toDouble();
+    var dmg = _randIntInclusive(
+      sim.rng,
+      damageMin.round(),
+      damageMax.round(),
+    ).toDouble();
     final targets = <TdEnemy>[];
     var last = target;
     while (dmg > 1) {
@@ -1401,10 +1909,13 @@ class TdMissile {
     if (!alive) return;
     alive = false;
 
-    final inRadius =
-        sim.enemiesInExplosionRange(posX, posY, blastRadius);
+    final inRadius = sim.enemiesInExplosionRange(posX, posY, blastRadius);
     for (final e in inRadius) {
-      final amt = _randIntInclusive(sim.rng, damageMin.round(), damageMax.round()).toDouble();
+      final amt = _randIntInclusive(
+        sim.rng,
+        damageMin.round(),
+        damageMax.round(),
+      ).toDouble();
       // JS missile.explode always uses 'explosion' damage type.
       e.dealDamage(amt, 'explosion', sim);
     }
@@ -1590,4 +2101,3 @@ final Map<String, TdTowerType> towerTypes = {
     isTesla: true,
   ),
 };
-
