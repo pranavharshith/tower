@@ -3,12 +3,6 @@
         android:label="flutter_tower"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
-        
-        <!-- Disable Impeller to fix Xiaomi/MIUI Vulkan GPU crashes causing pure black screens -->
-        <meta-data
-            android:name="io.flutter.embedding.android.EnableImpeller"
-            android:value="false" />
-            
         <activity
             android:name=".MainActivity"
             android:exported="true"
