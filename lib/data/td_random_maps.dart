@@ -69,7 +69,8 @@ class TdRandomMapGenerator {
     for (final c in exitCols) {
       for (final r in exitRows) {
         if (outside(c, r)) continue;
-        final isOrth = (c == exit.x && (r == exit.y - 1 || r == exit.y + 1)) ||
+        final isOrth =
+            (c == exit.x && (r == exit.y - 1 || r == exit.y + 1)) ||
             (r == exit.y && (c == exit.x - 1 || c == exit.x + 1));
         if (!isOrth) continue;
         if (!walkable(c, r)) grid[c][r] = 0;
@@ -98,8 +99,8 @@ class TdRandomMapGenerator {
           [0, 1],
         ];
         for (final d in dirs) {
-          final nc = c + d[0] as int;
-          final nr = r + d[1] as int;
+          final nc = c + d[0];
+          final nr = r + d[1];
           if (outside(nc, nr)) continue;
           if (visited[nc][nr]) continue;
           if (!walkable(nc, nr)) continue;
@@ -114,27 +115,68 @@ class TdRandomMapGenerator {
     final visitMap = computeVisitMap();
 
     const minDist = 15;
-    for (int i = 0; i < numSpawns; i++) {
-      TdCoord s = randomTile();
-      for (int tries = 0; tries < 100; tries++) {
-        s = randomTile();
-        while (!walkable(s.x, s.y) ||
-            !visitMap[s.x][s.y] ||
-            !empty(s.x, s.y, exit, spawnpoints)) {
-          s = randomTile();
-        }
-        final dx = s.x - exit.x;
-        final dy = s.y - exit.y;
+
+    // Pre-compute all valid spawn tiles that meet distance criteria
+    // This is more efficient than brute-force random rejection
+    final validSpawnTiles = <TdCoord>[];
+    for (int c = 0; c < cols; c++) {
+      for (int r = 0; r < rows; r++) {
+        if (!walkable(c, r) || !visitMap[c][r]) continue;
+
+        // Check distance from exit
+        final dx = c - exit.x;
+        final dy = r - exit.y;
         final dist = sqrt(dx * dx + dy * dy);
-        if (dist >= minDist) break;
+        if (dist >= minDist) {
+          validSpawnTiles.add(TdCoord(c, r));
+        }
       }
-      spawnpoints.add(s);
+    }
+
+    // Shuffle and pick from valid tiles - guarantees instant valid result
+    validSpawnTiles.shuffle(rng);
+
+    for (int i = 0; i < numSpawns; i++) {
+      // Find a tile that doesn't conflict with already placed spawnpoints
+      TdCoord? selected;
+      for (final tile in validSpawnTiles) {
+        if (empty(tile.x, tile.y, exit, spawnpoints)) {
+          selected = tile;
+          break;
+        }
+      }
+
+      // Fallback to random selection if no pre-validated tile works
+      if (selected == null) {
+        for (int tries = 0; tries < 100; tries++) {
+          final s = randomTile();
+          if (walkable(s.x, s.y) &&
+              visitMap[s.x][s.y] &&
+              empty(s.x, s.y, exit, spawnpoints)) {
+            final dx = s.x - exit.x;
+            final dy = s.y - exit.y;
+            final dist = sqrt(dx * dx + dy * dy);
+            if (dist >= minDist) {
+              selected = s;
+              break;
+            }
+          }
+        }
+      }
+
+      if (selected != null) {
+        spawnpoints.add(selected);
+      }
     }
 
     // display/displayDir are not used by our MVP renderer yet; set placeholders.
     final display = List<List<dynamic>>.generate(
       cols,
-      (c) => List<dynamic>.generate(rows, (r) => grid[c][r] == 1 ? 'wall' : 'empty', growable: false),
+      (c) => List<dynamic>.generate(
+        rows,
+        (r) => grid[c][r] == 1 ? 'wall' : 'empty',
+        growable: false,
+      ),
       growable: false,
     );
     final displayDir = List<List<int>>.generate(
@@ -144,8 +186,11 @@ class TdRandomMapGenerator {
     );
 
     // Initial paths will be computed by `recalculate()` when the game starts (and after placements).
-    final initialPaths =
-        List<List<int>>.generate(cols, (_) => List<int>.filled(rows, 0, growable: false), growable: false);
+    final initialPaths = List<List<int>>.generate(
+      cols,
+      (_) => List<int>.filled(rows, 0, growable: false),
+      growable: false,
+    );
 
     return TdGeneratedMap(
       map: TdMapData(
@@ -171,4 +216,3 @@ class TdGeneratedMap {
   final int cash;
   const TdGeneratedMap({required this.map, required this.cash});
 }
-

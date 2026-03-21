@@ -7,6 +7,7 @@ class TdPrefs {
   static const _soundEnabledKey = 'td_sound_enabled_v1';
   static const _effectsEnabledKey = 'td_effects_enabled_v1';
   static const _leaderboardKey = 'td_leaderboard_by_map_v1';
+  static const _tutorialCompletedKey = 'td_tutorial_completed_v1';
 
   Future<SharedPreferences> _prefs() => SharedPreferences.getInstance();
 
@@ -63,5 +64,15 @@ class TdPrefs {
     all[mapKey] = bestWave;
     await p.setString(_leaderboardKey, json.encode(all));
   }
-}
 
+  /// Tutorial completion tracking
+  Future<bool> getTutorialCompleted() async {
+    final p = await _prefs();
+    return p.getBool(_tutorialCompletedKey) ?? false;
+  }
+
+  Future<void> setTutorialCompleted(bool value) async {
+    final p = await _prefs();
+    await p.setBool(_tutorialCompletedKey, value);
+  }
+}

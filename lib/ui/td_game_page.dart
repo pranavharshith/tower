@@ -9,6 +9,7 @@ import '../game/td_simulation.dart';
 import '../services/td_prefs.dart';
 import 'app_theme.dart';
 import 'td_leaderboard_page.dart';
+import 'tutorial_overlay.dart';
 
 class TdGamePage extends StatefulWidget {
   final TdPrefs prefs;
@@ -33,6 +34,9 @@ class _TdGamePageState extends State<TdGamePage> {
   Timer? _tapToPlaceTimer;
   TdTowerType? _lastPlacingType;
 
+  // Tutorial overlay
+  bool _showTutorial = false;
+
   @override
   void initState() {
     super.initState();
@@ -41,6 +45,12 @@ class _TdGamePageState extends State<TdGamePage> {
       settings: widget.settings,
       onGameOver: _handleGameOver,
     );
+
+    // Initialize sound and particles from prefs
+    _initEffectsFromPrefs();
+
+    // Check if we should show tutorial - this will pause the game
+    _checkAndShowTutorial();
 
     // Set up callback for placement failure feedback
     _game.onPlacementFailed = (reason) {
@@ -71,6 +81,27 @@ class _TdGamePageState extends State<TdGamePage> {
         ),
       );
     };
+  }
+
+  Future<void> _initEffectsFromPrefs() async {
+    final soundEnabled = await widget.prefs.getSoundEnabled();
+    final effectsEnabled = await widget.prefs.getEffectsEnabled();
+
+    if (mounted) {
+      _game.setSoundsEnabled(soundEnabled, fromPrefs: true);
+      _game.setParticlesEnabled(effectsEnabled, fromPrefs: true);
+    }
+  }
+
+  Future<void> _checkAndShowTutorial() async {
+    final tutorialCompleted = await widget.prefs.getTutorialCompleted();
+    if (!tutorialCompleted && mounted) {
+      setState(() {
+        _showTutorial = true;
+      });
+      // Pause the game countdown while tutorial is showing
+      _game.pauseCountdown(true);
+    }
   }
 
   @override
@@ -119,6 +150,11 @@ class _TdGamePageState extends State<TdGamePage> {
 
   void _showTowerStatsModal(TdTower tower) {
     final sellPrice = tower.sellPrice();
+    final upgradeCost = tower.towerType.upgrade?.cost;
+    final canUpgrade = !tower.upgraded && tower.towerType.upgrade != null;
+    final cash = _game.sim?.cash ?? 0;
+    final canAffordUpgrade =
+        canUpgrade && upgradeCost != null && cash >= upgradeCost;
 
     showModalBottomSheet(
       context: context,
@@ -126,16 +162,18 @@ class _TdGamePageState extends State<TdGamePage> {
       isScrollControlled: true,
       builder: (context) => _TowerStatsSheet(
         tower: tower,
-        onUpgrade: () {
-          _game.upgradeSelected();
-          Navigator.pop(context);
-        },
+        onUpgrade: canAffordUpgrade
+            ? () {
+                // Close modal and process upgrade
+                Navigator.pop(context);
+                _game.upgradeSelected();
+              }
+            : null, // Disabled when can't afford or already upgraded
         onSell: () {
-          // Close the stats modal first
           Navigator.pop(context);
-          // Show confirmation dialog
           _showSellConfirmation(tower, sellPrice);
         },
+        canAffordUpgrade: canAffordUpgrade,
       ),
     );
   }
@@ -198,465 +236,509 @@ class _TdGamePageState extends State<TdGamePage> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppTheme.background,
-      body: Column(
+      body: Stack(
         children: [
-          // Top Stats Bar - Fixed height, separate from game
-          SafeArea(
-            bottom: false,
-            child: Container(
-              margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              decoration: BoxDecoration(
-                color: AppTheme.surface.withOpacity(0.95),
-                borderRadius: BorderRadius.circular(AppTheme.radiusLarge),
-                boxShadow: AppTheme.softShadow,
-              ),
-              child: ValueListenableBuilder<TdHudData>(
-                valueListenable: _game.hud,
-                builder: (context, hud, _) {
-                  return Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      // Health with heal effect
-                      Stack(
+          // Main game UI
+          Column(
+            children: [
+              // Top Stats Bar - Fixed height, separate from game
+              SafeArea(
+                bottom: false,
+                child: Container(
+                  margin: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 8,
+                  ),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 12,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppTheme.surface.withOpacity(0.95),
+                    borderRadius: BorderRadius.circular(AppTheme.radiusLarge),
+                    boxShadow: AppTheme.softShadow,
+                  ),
+                  child: ValueListenableBuilder<TdHudData>(
+                    valueListenable: _game.hud,
+                    builder: (context, hud, _) {
+                      return Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                         children: [
-                          _HudItem(
-                            icon: Icons.favorite_rounded,
-                            iconColor: hud.isBossWave
-                                ? const Color(0xFFFF00FF)
-                                : AppTheme.coral,
-                            value: '${hud.health}/${hud.maxHealth}',
-                            label: 'Health',
-                          ),
-                          if (hud.healEffectTicks > 0)
-                            Positioned(
-                              top: 0,
-                              right: 0,
-                              child: AnimatedOpacity(
-                                opacity: hud.healEffectTicks / 60.0,
-                                duration: const Duration(milliseconds: 100),
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 4,
-                                    vertical: 2,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFF00FF00),
-                                    borderRadius: BorderRadius.circular(4),
-                                  ),
-                                  child: Text(
-                                    '+${hud.healAmount}',
-                                    style: const TextStyle(
-                                      color: Colors.black,
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.bold,
+                          // Health with heal effect
+                          Stack(
+                            children: [
+                              _HudItem(
+                                icon: Icons.favorite_rounded,
+                                iconColor: hud.isBossWave
+                                    ? const Color(0xFFFF00FF)
+                                    : AppTheme.coral,
+                                value: '${hud.health}/${hud.maxHealth}',
+                                label: 'Health',
+                              ),
+                              if (hud.healEffectTicks > 0)
+                                Positioned(
+                                  top: 0,
+                                  right: 0,
+                                  child: AnimatedOpacity(
+                                    opacity: hud.healEffectTicks / 60.0,
+                                    duration: const Duration(milliseconds: 100),
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 4,
+                                        vertical: 2,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFF00FF00),
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                      child: Text(
+                                        '+${hud.healAmount}',
+                                        style: const TextStyle(
+                                          color: Colors.black,
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
                                     ),
                                   ),
+                                ),
+                            ],
+                          ),
+                          // Divider
+                          Container(
+                            width: 1,
+                            height: 30,
+                            color: AppTheme.gridLine,
+                          ),
+                          // Cash
+                          _HudItem(
+                            icon: Icons.attach_money_rounded,
+                            iconColor: AppTheme.mustard,
+                            value: '\$${hud.cash}',
+                            label: 'Cash',
+                          ),
+                          // Divider
+                          Container(
+                            width: 1,
+                            height: 30,
+                            color: AppTheme.gridLine,
+                          ),
+                          // Wave
+                          _HudItem(
+                            icon: Icons.waves_rounded,
+                            iconColor: AppTheme.skyBlue,
+                            value: '${hud.wave}',
+                            label: 'Wave',
+                          ),
+                          // Divider
+                          Container(
+                            width: 1,
+                            height: 30,
+                            color: AppTheme.gridLine,
+                          ),
+                          // Tower Count
+                          _HudItem(
+                            icon: Icons.architecture_rounded,
+                            iconColor: hud.maxTowersReached
+                                ? AppTheme.error
+                                : AppTheme.mustard,
+                            value: '${hud.towerCount}/${hud.maxTowers}',
+                            label: 'Towers',
+                          ),
+                          // Divider
+                          Container(
+                            width: 1,
+                            height: 30,
+                            color: AppTheme.gridLine,
+                          ),
+                          // Pause Button (only show after game started)
+                          if (hud.gameStarted)
+                            GestureDetector(
+                              onTap: () => _game.togglePause(),
+                              child: Container(
+                                padding: const EdgeInsets.all(8),
+                                decoration: BoxDecoration(
+                                  color: hud.paused
+                                      ? AppTheme.warning.withOpacity(0.2)
+                                      : AppTheme.success.withOpacity(0.2),
+                                  borderRadius: BorderRadius.circular(
+                                    AppTheme.radiusMedium,
+                                  ),
+                                ),
+                                child: Icon(
+                                  hud.paused
+                                      ? Icons.play_arrow_rounded
+                                      : Icons.pause_rounded,
+                                  color: hud.paused
+                                      ? AppTheme.warning
+                                      : AppTheme.success,
+                                  size: 24,
+                                ),
+                              ),
+                            ),
+                          // Countdown (show before game starts)
+                          if (!hud.gameStarted)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 6,
+                              ),
+                              decoration: BoxDecoration(
+                                color: AppTheme.warning.withOpacity(0.2),
+                                borderRadius: BorderRadius.circular(
+                                  AppTheme.radiusMedium,
+                                ),
+                              ),
+                              child: Text(
+                                'Starting in ${hud.countdownSeconds}s',
+                                style: GoogleFonts.nunito(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.bold,
+                                  color: AppTheme.warning,
                                 ),
                               ),
                             ),
                         ],
-                      ),
-                      // Divider
-                      Container(width: 1, height: 30, color: AppTheme.gridLine),
-                      // Cash
-                      _HudItem(
-                        icon: Icons.attach_money_rounded,
-                        iconColor: AppTheme.mustard,
-                        value: '\$${hud.cash}',
-                        label: 'Cash',
-                      ),
-                      // Divider
-                      Container(width: 1, height: 30, color: AppTheme.gridLine),
-                      // Wave
-                      _HudItem(
-                        icon: Icons.waves_rounded,
-                        iconColor: AppTheme.skyBlue,
-                        value: '${hud.wave}',
-                        label: 'Wave',
-                      ),
-                      // Divider
-                      Container(width: 1, height: 30, color: AppTheme.gridLine),
-                      // Tower Count
-                      _HudItem(
-                        icon: Icons.architecture_rounded,
-                        iconColor: hud.maxTowersReached
-                            ? AppTheme.error
-                            : AppTheme.mustard,
-                        value: '${hud.towerCount}/${hud.maxTowers}',
-                        label: 'Towers',
-                      ),
-                      // Divider
-                      Container(width: 1, height: 30, color: AppTheme.gridLine),
-                      // Pause Button (only show after game started)
-                      if (hud.gameStarted)
-                        GestureDetector(
-                          onTap: () => _game.togglePause(),
-                          child: Container(
-                            padding: const EdgeInsets.all(8),
-                            decoration: BoxDecoration(
-                              color: hud.paused
-                                  ? AppTheme.warning.withOpacity(0.2)
-                                  : AppTheme.success.withOpacity(0.2),
-                              borderRadius: BorderRadius.circular(
-                                AppTheme.radiusMedium,
-                              ),
-                            ),
-                            child: Icon(
-                              hud.paused
-                                  ? Icons.play_arrow_rounded
-                                  : Icons.pause_rounded,
-                              color: hud.paused
-                                  ? AppTheme.warning
-                                  : AppTheme.success,
-                              size: 24,
-                            ),
-                          ),
-                        ),
-                      // Countdown (show before game starts)
-                      if (!hud.gameStarted)
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 6,
-                          ),
-                          decoration: BoxDecoration(
-                            color: AppTheme.warning.withOpacity(0.2),
-                            borderRadius: BorderRadius.circular(
-                              AppTheme.radiusMedium,
-                            ),
-                          ),
-                          child: Text(
-                            'Starting in ${hud.countdownSeconds}s',
-                            style: GoogleFonts.nunito(
-                              fontSize: 14,
-                              fontWeight: FontWeight.bold,
-                              color: AppTheme.warning,
-                            ),
-                          ),
-                        ),
-                    ],
-                  );
-                },
-              ),
-            ),
-          ),
-          // Game Area - Takes remaining space
-          Expanded(
-            child: Stack(
-              children: [
-                // Game Canvas
-                GameWidget(game: _game),
-                // Overlay messages and placement UI inside game area
-                // "Tap to place" message (shows for 3 seconds when tower selected)
-                ValueListenableBuilder<int>(
-                  valueListenable: _game.selectionRevision,
-                  builder: (context, _, __) {
-                    // Only show if tower type is selected but no tile position yet
-                    if (!_game.hasSelectedTowerType ||
-                        _game.pendingTowerCol != null) {
-                      return const SizedBox.shrink();
-                    }
-
-                    // Check if we should show the message (3 second timeout)
-                    if (!_showTapToPlace) {
-                      return const SizedBox.shrink();
-                    }
-
-                    return Positioned(
-                      left: 0,
-                      right: 0,
-                      bottom: 20,
-                      child: Center(
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 8,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.black.withOpacity(0.8),
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: Text(
-                            'Tap map to place ${_game.placingType?.title ?? 'tower'}',
-                            style: GoogleFonts.nunito(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.white,
-                            ),
-                          ),
-                        ),
-                      ),
-                    );
-                  },
-                ),
-                // Tower Placement Panel (shows on the tile itself)
-                ValueListenableBuilder<TdHudData>(
-                  valueListenable: _game.hud,
-                  builder: (context, hud, _) {
-                    if (!hud.isPlacingTower ||
-                        hud.pendingTowerCol == null ||
-                        hud.pendingTowerRow == null) {
-                      return const SizedBox.shrink();
-                    }
-
-                    final placing = _game.placingType;
-                    if (placing == null) return const SizedBox.shrink();
-
-                    // Calculate tile position on screen
-                    final map = _game.sim.baseMap;
-                    final cols = map.cols;
-                    final rows = map.rows;
-
-                    // Use LayoutBuilder to get the game area size
-                    return LayoutBuilder(
-                      builder: (context, constraints) {
-                        final gameWidth = constraints.maxWidth;
-                        final gameHeight = constraints.maxHeight;
-                        final tileW = gameWidth / cols;
-                        final tileH = gameHeight / rows;
-                        final tileSize = tileW < tileH ? tileW : tileH;
-
-                        final originX = (gameWidth - cols * tileSize) / 2;
-                        final originY = (gameHeight - rows * tileSize) / 2;
-
-                        final tileLeft =
-                            originX + hud.pendingTowerCol! * tileSize;
-                        final tileTop =
-                            originY + hud.pendingTowerRow! * tileSize;
-                        final tileCenterX = tileLeft + tileSize / 2;
-
-                        return Stack(
-                          children: [
-                            // Buttons positioned above the tile
-                            Positioned(
-                              left: tileCenterX - 80,
-                              top: tileTop - 50,
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 8,
-                                  vertical: 4,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: Colors.black.withOpacity(0.8),
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    // Timeout display
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 8,
-                                        vertical: 4,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: hud.placementTimeoutSeconds <= 3
-                                            ? Colors.red.withOpacity(0.8)
-                                            : Colors.orange.withOpacity(0.8),
-                                        borderRadius: BorderRadius.circular(4),
-                                      ),
-                                      child: Text(
-                                        '${hud.placementTimeoutSeconds}s',
-                                        style: GoogleFonts.nunito(
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.bold,
-                                          color: Colors.white,
-                                        ),
-                                      ),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    // Confirm button
-                                    GestureDetector(
-                                      onTap: () {
-                                        _game.confirmPendingTower();
-                                        _updateTapToPlaceMessage(null);
-                                      },
-                                      child: Container(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 12,
-                                          vertical: 6,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color: AppTheme.success,
-                                          borderRadius: BorderRadius.circular(
-                                            4,
-                                          ),
-                                        ),
-                                        child: Text(
-                                          'Place',
-                                          style: GoogleFonts.nunito(
-                                            fontSize: 12,
-                                            fontWeight: FontWeight.bold,
-                                            color: Colors.white,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    // Cancel button
-                                    GestureDetector(
-                                      onTap: () {
-                                        _game.cancelPendingTower();
-                                        _updateTapToPlaceMessage(null);
-                                      },
-                                      child: Container(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 12,
-                                          vertical: 6,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color: AppTheme.error,
-                                          borderRadius: BorderRadius.circular(
-                                            4,
-                                          ),
-                                        ),
-                                        child: Text(
-                                          'Cancel',
-                                          style: GoogleFonts.nunito(
-                                            fontSize: 12,
-                                            fontWeight: FontWeight.bold,
-                                            color: Colors.white,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ],
-                        );
-                      },
-                    );
-                  },
-                ),
-                // Selected Tower Stats (when tower is selected)
-                Positioned.fill(
-                  child: ValueListenableBuilder<int>(
-                    valueListenable: _game.selectionRevision,
-                    builder: (context, _, __) {
-                      final selected = _game.selectedTower;
-                      if (selected == null) return const SizedBox.shrink();
-
-                      // Show modal when tower is selected
-                      WidgetsBinding.instance.addPostFrameCallback((_) {
-                        _showTowerStatsModal(selected);
-                        // Clear selection after showing modal
-                        _game.selectTower(null);
-                      });
-
-                      return const SizedBox.shrink();
+                      );
                     },
                   ),
                 ),
-              ],
-            ),
-          ),
-          // Bottom Tower Store Bar - Fixed height, separate from game
-          SafeArea(
-            top: false,
-            child: Container(
-              margin: const EdgeInsets.all(12),
-              padding: const EdgeInsets.symmetric(vertical: 12),
-              decoration: BoxDecoration(
-                color: AppTheme.surface.withOpacity(0.95),
-                borderRadius: BorderRadius.circular(AppTheme.radiusLarge),
-                boxShadow: AppTheme.mediumShadow,
               ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // Store Title
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 8, left: 16),
-                    child: Row(
-                      children: [
-                        Icon(
-                          Icons.store_rounded,
-                          size: 16,
-                          color: AppTheme.textSecondary,
-                        ),
-                        const SizedBox(width: 6),
-                        Text(
-                          'Tower Store',
-                          style: GoogleFonts.nunito(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            color: AppTheme.textSecondary,
+              // Game Area - Takes remaining space
+              Expanded(
+                child: Stack(
+                  children: [
+                    // Game Canvas
+                    GameWidget(game: _game),
+                    // Overlay messages and placement UI inside game area
+                    // "Tap to place" message (shows for 3 seconds when tower selected)
+                    ValueListenableBuilder<int>(
+                      valueListenable: _game.selectionRevision,
+                      builder: (context, _, __) {
+                        // Only show if tower type is selected but no tile position yet
+                        if (!_game.hasSelectedTowerType ||
+                            _game.pendingTowerCol != null) {
+                          return const SizedBox.shrink();
+                        }
+
+                        // Check if we should show the message (3 second timeout)
+                        if (!_showTapToPlace) {
+                          return const SizedBox.shrink();
+                        }
+
+                        return Positioned(
+                          left: 0,
+                          right: 0,
+                          bottom: 20,
+                          child: Center(
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 8,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.black.withOpacity(0.8),
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: Text(
+                                'Tap map to place ${_game.placingType?.title ?? 'tower'}',
+                                style: GoogleFonts.nunito(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ),
                           ),
-                        ),
-                      ],
+                        );
+                      },
                     ),
-                  ),
-                  // Tower List
-                  SizedBox(
-                    height: 90,
-                    child: ValueListenableBuilder<TdHudData>(
+                    // Tower Placement Panel (shows on the tile itself)
+                    ValueListenableBuilder<TdHudData>(
                       valueListenable: _game.hud,
                       builder: (context, hud, _) {
-                        return ValueListenableBuilder<int>(
-                          valueListenable: _game.selectionRevision,
-                          builder: (context, _, __) {
-                            final placing = _game.placingType;
-                            final selected = _game.selectedTower;
+                        if (!hud.isPlacingTower ||
+                            hud.pendingTowerCol == null ||
+                            hud.pendingTowerRow == null) {
+                          return const SizedBox.shrink();
+                        }
 
-                            return ListView.builder(
-                              scrollDirection: Axis.horizontal,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                              ),
-                              itemCount: towerTypes.length,
-                              itemBuilder: (context, index) {
-                                final key = towerTypes.keys.elementAt(index);
-                                final t = towerTypes[key]!;
-                                final isActive =
-                                    placing?.key == t.key ||
-                                    selected?.towerType.key == t.key;
-                                final canAfford = hud.cash >= t.cost;
-                                final maxedOut = hud.maxTowersReached;
+                        final placing = _game.placingType;
+                        if (placing == null) return const SizedBox.shrink();
 
-                                return Padding(
-                                  padding: const EdgeInsets.only(right: 10),
-                                  child: _TowerStoreItem(
-                                    towerType: t,
-                                    isActive: isActive,
-                                    isDisabled: !canAfford || maxedOut,
-                                    onTap: () {
-                                      if (maxedOut) {
-                                        // Show max towers message
-                                        ScaffoldMessenger.of(
-                                          context,
-                                        ).showSnackBar(
-                                          SnackBar(
-                                            content: Text(
-                                              'Max towers reached (${hud.towerCount}/${hud.maxTowers}). Upgrade or sell existing towers.',
-                                              style: GoogleFonts.nunito(),
-                                            ),
-                                            backgroundColor: AppTheme.error,
-                                            duration: const Duration(
-                                              seconds: 2,
+                        // Calculate tile position on screen
+                        final map = _game.sim.baseMap;
+                        final cols = map.cols;
+                        final rows = map.rows;
+
+                        // Use LayoutBuilder to get the game area size
+                        return LayoutBuilder(
+                          builder: (context, constraints) {
+                            final gameWidth = constraints.maxWidth;
+                            final gameHeight = constraints.maxHeight;
+                            final tileW = gameWidth / cols;
+                            final tileH = gameHeight / rows;
+                            final tileSize = tileW < tileH ? tileW : tileH;
+
+                            final originX = (gameWidth - cols * tileSize) / 2;
+                            final originY = (gameHeight - rows * tileSize) / 2;
+
+                            final tileLeft =
+                                originX + hud.pendingTowerCol! * tileSize;
+                            final tileTop =
+                                originY + hud.pendingTowerRow! * tileSize;
+                            final tileCenterX = tileLeft + tileSize / 2;
+
+                            return Stack(
+                              children: [
+                                // Buttons positioned above the tile
+                                Positioned(
+                                  left: tileCenterX - 80,
+                                  top: tileTop - 50,
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 4,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: Colors.black.withOpacity(0.8),
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        // Timeout display
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 8,
+                                            vertical: 4,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color:
+                                                hud.placementTimeoutSeconds <= 3
+                                                ? Colors.red.withOpacity(0.8)
+                                                : Colors.orange.withOpacity(
+                                                    0.8,
+                                                  ),
+                                            borderRadius: BorderRadius.circular(
+                                              4,
                                             ),
                                           ),
-                                        );
-                                        return;
-                                      }
-                                      _game.startPlacingTower(t);
-                                      _updateTapToPlaceMessage(t);
-                                    },
+                                          child: Text(
+                                            '${hud.placementTimeoutSeconds}s',
+                                            style: GoogleFonts.nunito(
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.bold,
+                                              color: Colors.white,
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        // Confirm button
+                                        GestureDetector(
+                                          onTap: () {
+                                            _game.confirmPendingTower();
+                                            _updateTapToPlaceMessage(null);
+                                          },
+                                          child: Container(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 12,
+                                              vertical: 6,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              color: AppTheme.success,
+                                              borderRadius:
+                                                  BorderRadius.circular(4),
+                                            ),
+                                            child: Text(
+                                              'Place',
+                                              style: GoogleFonts.nunito(
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.bold,
+                                                color: Colors.white,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        // Cancel button
+                                        GestureDetector(
+                                          onTap: () {
+                                            _game.cancelPendingTower();
+                                            _updateTapToPlaceMessage(null);
+                                          },
+                                          child: Container(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 12,
+                                              vertical: 6,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              color: AppTheme.error,
+                                              borderRadius:
+                                                  BorderRadius.circular(4),
+                                            ),
+                                            child: Text(
+                                              'Cancel',
+                                              style: GoogleFonts.nunito(
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.bold,
+                                                color: Colors.white,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
                                   ),
-                                );
-                              },
+                                ),
+                              ],
                             );
                           },
                         );
                       },
                     ),
-                  ),
-                ],
+                    // Selected Tower Stats (when tower is selected)
+                    Positioned.fill(
+                      child: ValueListenableBuilder<int>(
+                        valueListenable: _game.selectionRevision,
+                        builder: (context, _, __) {
+                          final selected = _game.selectedTower;
+                          if (selected == null) return const SizedBox.shrink();
+
+                          // Show modal when tower is selected
+                          WidgetsBinding.instance.addPostFrameCallback((_) {
+                            _showTowerStatsModal(selected);
+                            // Clear selection immediately after showing modal
+                            _game.selectTower(null);
+                          });
+
+                          return const SizedBox.shrink();
+                        },
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
+              // Bottom Tower Store Bar - Fixed height, separate from game
+              SafeArea(
+                top: false,
+                child: Container(
+                  margin: const EdgeInsets.all(12),
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  decoration: BoxDecoration(
+                    color: AppTheme.surface.withOpacity(0.95),
+                    borderRadius: BorderRadius.circular(AppTheme.radiusLarge),
+                    boxShadow: AppTheme.mediumShadow,
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // Store Title
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 8, left: 16),
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.store_rounded,
+                              size: 16,
+                              color: AppTheme.textSecondary,
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              'Tower Store',
+                              style: GoogleFonts.nunito(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: AppTheme.textSecondary,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      // Tower List
+                      SizedBox(
+                        height: 90,
+                        child: ValueListenableBuilder<TdHudData>(
+                          valueListenable: _game.hud,
+                          builder: (context, hud, _) {
+                            return ValueListenableBuilder<int>(
+                              valueListenable: _game.selectionRevision,
+                              builder: (context, _, __) {
+                                final placing = _game.placingType;
+                                final selected = _game.selectedTower;
+
+                                return ListView.builder(
+                                  scrollDirection: Axis.horizontal,
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                  ),
+                                  itemCount: towerTypes.length,
+                                  itemBuilder: (context, index) {
+                                    final key = towerTypes.keys.elementAt(
+                                      index,
+                                    );
+                                    final t = towerTypes[key]!;
+                                    final isActive =
+                                        placing?.key == t.key ||
+                                        selected?.towerType.key == t.key;
+                                    final canAfford = hud.cash >= t.cost;
+                                    final maxedOut = hud.maxTowersReached;
+
+                                    return Padding(
+                                      padding: const EdgeInsets.only(right: 10),
+                                      child: _TowerStoreItem(
+                                        towerType: t,
+                                        isActive: isActive,
+                                        isDisabled: !canAfford || maxedOut,
+                                        onTap: () {
+                                          if (maxedOut) {
+                                            // Show max towers message
+                                            ScaffoldMessenger.of(
+                                              context,
+                                            ).showSnackBar(
+                                              SnackBar(
+                                                content: Text(
+                                                  'Max towers reached (${hud.towerCount}/${hud.maxTowers}). Upgrade or sell existing towers.',
+                                                  style: GoogleFonts.nunito(),
+                                                ),
+                                                backgroundColor: AppTheme.error,
+                                                duration: const Duration(
+                                                  seconds: 2,
+                                                ),
+                                              ),
+                                            );
+                                            return;
+                                          }
+                                          _game.startPlacingTower(t);
+                                          _updateTapToPlaceMessage(t);
+                                        },
+                                      ),
+                                    );
+                                  },
+                                );
+                              },
+                            );
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
           ),
+          // Tutorial overlay (shown on first launch)
+          if (_showTutorial)
+            TutorialOverlay(
+              prefs: widget.prefs,
+              onComplete: () {
+                setState(() {
+                  _showTutorial = false;
+                });
+                // Resume the game countdown after tutorial completes
+                _game.pauseCountdown(false);
+              },
+            ),
         ],
       ),
     );
@@ -820,13 +902,15 @@ class _TowerStoreItem extends StatelessWidget {
 
 class _TowerStatsSheet extends StatelessWidget {
   final TdTower tower;
-  final VoidCallback onUpgrade;
+  final VoidCallback? onUpgrade;
   final VoidCallback onSell;
+  final bool canAffordUpgrade;
 
   const _TowerStatsSheet({
     required this.tower,
     required this.onUpgrade,
     required this.onSell,
+    this.canAffordUpgrade = true,
   });
 
   @override
@@ -913,8 +997,8 @@ class _TowerStatsSheet extends StatelessWidget {
           _StatRow(
             icon: Icons.social_distance_rounded,
             label: 'Range',
-            value: '${st.range} tiles',
-            progress: st.range / 10, // Normalize to 0-1
+            value: '${tower.range} tiles',
+            progress: tower.range / 10, // Normalize to 0-1
             color: AppTheme.skyBlue,
           ),
           const SizedBox(height: 12),
@@ -948,7 +1032,9 @@ class _TowerStatsSheet extends StatelessWidget {
                       'Upgrade${upPrice != null ? " \$$upPrice" : ""}',
                     ),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: AppTheme.success,
+                      backgroundColor: canAffordUpgrade
+                          ? AppTheme.success
+                          : Colors.grey,
                       foregroundColor: Colors.white,
                       padding: const EdgeInsets.symmetric(vertical: 14),
                       shape: RoundedRectangleBorder(

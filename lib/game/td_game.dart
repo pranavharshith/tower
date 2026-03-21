@@ -1,12 +1,13 @@
 import 'dart:math';
 import 'package:flame/game.dart';
 import 'package:flame/events.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../data/td_maps.dart';
 import '../data/td_random_maps.dart';
+import '../services/sound_service.dart';
 import 'td_simulation.dart';
+import 'particle_system.dart';
 
 class TdGameSettings {
   final bool stretchMode;
@@ -77,6 +78,7 @@ class TdGame extends FlameGame with TapCallbacks {
   bool _gameStarted = false;
   int _countdownSeconds = 10;
   double _countdownAccum = 0;
+  bool _countdownPaused = false; // Pause countdown for tutorial
 
   // Expose HUD for overlay widgets.
   final ValueNotifier<TdHudData> hud = ValueNotifier<TdHudData>(
@@ -97,7 +99,12 @@ class TdGame extends FlameGame with TapCallbacks {
 
   TdSim? _sim;
 
-  Random _rng = Random();
+  // Sound and particle effects
+  final SoundService _soundService = SoundService();
+  final ParticleSystem _particleSystem = ParticleSystem();
+  bool _particlesEnabled = true;
+
+  final Random _rng = Random();
   late final TdMaps _tdMaps;
   late final TdRandomMapGenerator _randomMapGenerator;
 
@@ -124,6 +131,36 @@ class TdGame extends FlameGame with TapCallbacks {
 
   TdSim get sim => _sim!;
 
+  // Sound and particle system accessors
+  SoundService get soundService => _soundService;
+  ParticleSystem get particleSystem => _particleSystem;
+  bool get particlesEnabled => _particlesEnabled;
+
+  void setParticlesEnabled(bool enabled, {bool fromPrefs = false}) {
+    _particlesEnabled = enabled;
+    _particleSystem.setEnabled(enabled);
+    if (!fromPrefs) {
+      // If not from prefs, also update the service
+      _soundService.setEnabled(enabled);
+    }
+  }
+
+  void setSoundsEnabled(bool enabled, {bool fromPrefs = false}) {
+    _soundService.setEnabled(enabled);
+    if (!fromPrefs) {
+      // If not from prefs, also update particles
+      _particlesEnabled = enabled;
+      _particleSystem.setEnabled(enabled);
+    }
+  }
+
+  /// Pause or resume the game start countdown (used for tutorial overlay)
+  void pauseCountdown(bool pause) {
+    _countdownPaused = pause;
+  }
+
+  bool get isCountdownPaused => _countdownPaused;
+
   void setPaused(bool value) {
     final s = _sim;
     if (s == null) return;
@@ -142,6 +179,9 @@ class TdGame extends FlameGame with TapCallbacks {
 
     _tdMaps = const TdMaps();
     _randomMapGenerator = TdRandomMapGenerator(_rng);
+
+    // Initialize sound service
+    await _soundService.initialize();
 
     await _loadMapAndInitSim();
   }
@@ -203,8 +243,21 @@ class TdGame extends FlameGame with TapCallbacks {
 
   void upgradeSelected() {
     if (selectedTower == null) return;
-    sim.upgradeTower(selectedTower!);
-    selectionRevision.value++;
+
+    // Check if tower can be upgraded
+    if (!selectedTower!.canUpgrade) return;
+
+    // Check if player has enough cash
+    final upgradeCost = selectedTower!.towerType.upgrade?.cost ?? 0;
+    if (_sim!.cash >= upgradeCost) {
+      // Deduct cash and upgrade
+      _sim!.cash -= upgradeCost;
+      sim.upgradeTower(selectedTower!);
+      // Don't clear selection - keep it so user can see upgraded stats
+      // Just increment revision to trigger UI refresh
+      selectionRevision.value++;
+    }
+    // If not enough cash, do nothing (button should be disabled in UI)
   }
 
   void sellSelected() {
@@ -272,8 +325,9 @@ class TdGame extends FlameGame with TapCallbacks {
   void confirmPendingTower() {
     if (_pendingTowerType == null ||
         _pendingTowerCol == null ||
-        _pendingTowerRow == null)
+        _pendingTowerRow == null) {
       return;
+    }
     _sim!.placeTower(_pendingTowerType!, _pendingTowerCol!, _pendingTowerRow!);
     _pendingTowerType = null;
     _pendingTowerCol = null;
@@ -312,6 +366,11 @@ class TdGame extends FlameGame with TapCallbacks {
     final sim = _sim;
     if (sim == null) return;
 
+    // Update particle system
+    if (_particlesEnabled) {
+      _particleSystem.update(dt);
+    }
+
     // Handle placement timeout countdown
     if (_pendingTowerCol != null && _placementTimeout > 0) {
       _placementTimeout -= dt;
@@ -323,8 +382,8 @@ class TdGame extends FlameGame with TapCallbacks {
 
     // Handle countdown before game starts (paused while placing tower)
     if (!_gameStarted) {
-      // Only countdown if not placing a tower
-      if (!isPlacingTower) {
+      // Only countdown if not placing a tower and not paused for tutorial
+      if (!isPlacingTower && !_countdownPaused) {
         _countdownAccum += dt;
         if (_countdownAccum >= 1.0) {
           _countdownAccum -= 1.0;
@@ -359,11 +418,14 @@ class TdGame extends FlameGame with TapCallbacks {
       return;
     }
 
-    // Run fixed-step simulation (paused while placing tower)
+    // Run fixed-step simulation at 60Hz (decoupled from rendering)
+    // This saves battery while maintaining smooth visuals through interpolation
     if (!isPlacingTower) {
       _accum += dt;
-      while (_accum >= kSimSecondsPerTick) {
-        _accum -= kSimSecondsPerTick;
+      // Use 60Hz (1/60) instead of 120Hz (1/120) for better battery life
+      const simTickRate = 1.0 / 60.0;
+      while (_accum >= simTickRate) {
+        _accum -= simTickRate;
         sim.step();
 
         if (!sim.paused) {
@@ -414,29 +476,27 @@ class TdGame extends FlameGame with TapCallbacks {
     // Tile colors - updated to softer, more aesthetic palette
     // We draw basic colored rectangles + grid lines; advanced shapes (corner
     // geometry) are approximated by using the same road color.
-    Color _c(int r, int g, int b) => Color.fromARGB(255, r, g, b);
     // New softer colors
     const road = Color(0xFFE8DCC4); // Soft beige/light brown for path
     const grass = Color(0xFFB8E0D2); // Muted mint green
-    const wall = Color(0xFF6B7FD7); // Soft indigo
     const towerTile = Color(0xFF7FD8BE); // Mint
     const sidewalk = Color(0xFFD4D4E0); // Light gray
     // Map theme colors - softer variants
-    const c0_lightBrown = Color(0xFFE8DCC4);
-    const c0_lightPurple = Color(0xFFC5B8E0);
-    const c0_mediumPurple = Color(0xFF9D8EC4);
-    const c0_darkPurple = Color(0xFF7A6BA3);
-    const c0_paleGreen = Color(0xFFD4F1E0);
-    const c1_darkBlue = Color(0xFF4A5B8C);
-    const c1_mediumBlue = Color(0xFF6B7FD7);
-    const c1_lightBlue = Color(0xFF9BB5F0);
-    const c1_darkPurple = Color(0xFF7A6BA3);
-    const c1_neonPink = Color(0xFFFF8B9A);
-    const c2_darkRed = Color(0xFFC45B5B);
-    const c2_navyBlue = Color(0xFF4A5B8C);
-    const c2_darkBlue = Color(0xFF5B6BA3);
-    const c2_paleYellow = Color(0xFFFFF4D4);
-    const c2_lightYellow = Color(0xFFFFE8B8);
+    const c0LightBrown = Color(0xFFE8DCC4);
+    const c0LightPurple = Color(0xFFC5B8E0);
+    const c0MediumPurple = Color(0xFF9D8EC4);
+    const c0DarkPurple = Color(0xFF7A6BA3);
+    const c0PaleGreen = Color(0xFFD4F1E0);
+    const c1DarkBlue = Color(0xFF4A5B8C);
+    const c1MediumBlue = Color(0xFF6B7FD7);
+    const c1LightBlue = Color(0xFF9BB5F0);
+    const c1DarkPurple = Color(0xFF7A6BA3);
+    const c1NeonPink = Color(0xFFFF8B9A);
+    const c2DarkRed = Color(0xFFC45B5B);
+    const c2NavyBlue = Color(0xFF4A5B8C);
+    const c2DarkBlue = Color(0xFF5B6BA3);
+    const c2PaleYellow = Color(0xFFFFF4D4);
+    const c2LightYellow = Color(0xFFFFE8B8);
 
     Color tileColor(dynamic display, int gridValue) {
       // Grid value 1 = wall (obstacle) - grey color
@@ -466,35 +526,35 @@ class TdGame extends FlameGame with TapCallbacks {
         case 'rCorner':
           return road;
         case 'c0_lightBrown':
-          return c0_lightBrown;
+          return c0LightBrown;
         case 'c0_lightPurple':
-          return c0_lightPurple;
+          return c0LightPurple;
         case 'c0_mediumPurple':
-          return c0_mediumPurple;
+          return c0MediumPurple;
         case 'c0_darkPurple':
-          return c0_darkPurple;
+          return c0DarkPurple;
         case 'c0_paleGreen':
-          return c0_paleGreen;
+          return c0PaleGreen;
         case 'c1_darkBlue':
-          return c1_darkBlue;
+          return c1DarkBlue;
         case 'c1_mediumBlue':
-          return c1_mediumBlue;
+          return c1MediumBlue;
         case 'c1_lightBlue':
-          return c1_lightBlue;
+          return c1LightBlue;
         case 'c1_darkPurple':
-          return c1_darkPurple;
+          return c1DarkPurple;
         case 'c1_neonPink':
-          return c1_neonPink;
+          return c1NeonPink;
         case 'c2_darkRed':
-          return c2_darkRed;
+          return c2DarkRed;
         case 'c2_navyBlue':
-          return c2_navyBlue;
+          return c2NavyBlue;
         case 'c2_darkBlue':
-          return c2_darkBlue;
+          return c2DarkBlue;
         case 'c2_paleYellow':
-          return c2_paleYellow;
+          return c2PaleYellow;
         case 'c2_lightYellow':
-          return c2_lightYellow;
+          return c2LightYellow;
         default:
           return const Color(0x00000000); // Transparent by default
       }
@@ -778,6 +838,11 @@ class TdGame extends FlameGame with TapCallbacks {
           ..strokeWidth = 1,
       );
     }
+
+    // Render particle effects (on top of everything)
+    if (_particlesEnabled) {
+      _particleSystem.render(canvas);
+    }
   }
 
   void _drawEnemy(
@@ -922,27 +987,101 @@ class TdGame extends FlameGame with TapCallbacks {
     canvas.save();
     canvas.translate(cx, cy);
 
-    // Draw spiky star shape
-    final path = Path();
-    final spikes = 8;
-    final outerRadius = r * 1.3;
-    final innerRadius = r * 0.6;
+    // Draw devil horns (curved triangles on top)
+    final hornPaint = Paint()
+      ..color =
+          const Color(0xFFFF0000) // Red horns
+      ..style = PaintingStyle.fill;
 
-    for (int i = 0; i < spikes * 2; i++) {
-      final angle = (i * pi / spikes) - pi / 2;
-      final radius = i.isEven ? outerRadius : innerRadius;
-      final x = cos(angle) * radius;
-      final y = sin(angle) * radius;
-      if (i == 0) {
-        path.moveTo(x, y);
-      } else {
-        path.lineTo(x, y);
-      }
-    }
-    path.close();
-    canvas.drawPath(path, paint);
+    // Left horn (curved)
+    final leftHornPath = Path()
+      ..moveTo(-r * 0.4, -r * 0.6)
+      ..quadraticBezierTo(
+        -r * 0.7,
+        -r * 1.3, // Control point (curves outward)
+        -r * 0.3,
+        -r * 1.1, // Tip point
+      )
+      ..quadraticBezierTo(
+        -r * 0.5,
+        -r * 0.8, // Control point (curves inward)
+        -r * 0.4,
+        -r * 0.6, // Back to base
+      )
+      ..close();
+    canvas.drawPath(leftHornPath, hornPaint);
 
-    // Draw crown on top
+    // Right horn (curved)
+    final rightHornPath = Path()
+      ..moveTo(r * 0.4, -r * 0.6)
+      ..quadraticBezierTo(
+        r * 0.7,
+        -r * 1.3, // Control point (curves outward)
+        r * 0.3,
+        -r * 1.1, // Tip point
+      )
+      ..quadraticBezierTo(
+        r * 0.5,
+        -r * 0.8, // Control point (curves inward)
+        r * 0.4,
+        -r * 0.6, // Back to base
+      )
+      ..close();
+    canvas.drawPath(rightHornPath, hornPaint);
+
+    // Draw main body as circle (devil face)
+    canvas.drawCircle(Offset.zero, r, paint);
+
+    // Draw angry eyes with pupils
+    final eyeWhitePaint = Paint()
+      ..color = const Color(0xFFFFFFFF)
+      ..style = PaintingStyle.fill;
+
+    // Eye whites
+    canvas.drawCircle(Offset(-r * 0.35, -r * 0.1), r * 0.2, eyeWhitePaint);
+    canvas.drawCircle(Offset(r * 0.35, -r * 0.1), r * 0.2, eyeWhitePaint);
+
+    // Angry eyebrows
+    final browPaint = Paint()
+      ..color = const Color(0xFF000000)
+      ..strokeWidth = 2
+      ..style = PaintingStyle.stroke;
+
+    final leftBrowPath = Path()
+      ..moveTo(-r * 0.5, -r * 0.25)
+      ..lineTo(-r * 0.2, -r * 0.15);
+    canvas.drawPath(leftBrowPath, browPaint);
+
+    final rightBrowPath = Path()
+      ..moveTo(r * 0.5, -r * 0.25)
+      ..lineTo(r * 0.2, -r * 0.15);
+    canvas.drawPath(rightBrowPath, browPaint);
+
+    // Red glowing pupils
+    final pupilPaint = Paint()
+      ..color = const Color(0xFFFF0000)
+      ..style = PaintingStyle.fill;
+    canvas.drawCircle(Offset(-r * 0.35, -r * 0.1), r * 0.1, pupilPaint);
+    canvas.drawCircle(Offset(r * 0.35, -r * 0.1), r * 0.1, pupilPaint);
+
+    // Draw sinister smile
+    final mouthPaint = Paint()
+      ..color =
+          const Color(0xFF8B0000) // Dark red
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2;
+
+    final mouthPath = Path()
+      ..moveTo(-r * 0.4, r * 0.3)
+      ..quadraticBezierTo(
+        0,
+        r * 0.6, // Control point (creates smile curve)
+        r * 0.4,
+        r * 0.3,
+      );
+    canvas.drawPath(mouthPath, mouthPaint);
+
+    // Draw crown on top (gold)
     final crownPaint = Paint()
       ..color =
           const Color(0xFFFFD700) // Gold crown
@@ -956,13 +1095,6 @@ class TdGame extends FlameGame with TapCallbacks {
       ..lineTo(r * 0.5, -r * 0.8)
       ..close();
     canvas.drawPath(crownPath, crownPaint);
-
-    // Draw glowing eyes
-    final eyePaint = Paint()
-      ..color = const Color(0xFFFF0000)
-      ..style = PaintingStyle.fill;
-    canvas.drawCircle(Offset(-r * 0.3, -r * 0.1), r * 0.15, eyePaint);
-    canvas.drawCircle(Offset(r * 0.3, -r * 0.1), r * 0.15, eyePaint);
 
     canvas.restore();
   }
@@ -1117,6 +1249,29 @@ class TdGame extends FlameGame with TapCallbacks {
         r,
         Paint()
           ..color = const Color(0xFF000000)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1,
+      );
+    }
+
+    // Visual indicator for upgraded towers - golden ring
+    if (t.upgraded) {
+      canvas.drawCircle(
+        Offset.zero,
+        r * 1.1,
+        Paint()
+          ..color =
+              const Color(0xFFFFD700) // Gold color
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2,
+      );
+      // Add a subtle glow effect
+      canvas.drawCircle(
+        Offset.zero,
+        r * 1.15,
+        Paint()
+          ..color =
+              const Color(0x40FFD700) // Semi-transparent gold
           ..style = PaintingStyle.stroke
           ..strokeWidth = 1,
       );

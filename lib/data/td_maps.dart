@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'package:lzstring/lzstring.dart';
 
 /// Compressed premade maps copied from:
-/// `towerdefense/scripts/maps.js` (maps.<key> = toMap('<base64>');)
+/// `towerdefense/scripts/maps.js` (maps.&lt;key&gt; = toMap('&lt;base64&gt;');)
 ///
 /// We decode them at runtime so we don't need to generate large JSON blobs.
 class TdMaps {

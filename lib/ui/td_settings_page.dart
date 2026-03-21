@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-import '../game/td_game.dart';
 import '../services/td_prefs.dart';
 import 'app_theme.dart';
 
@@ -135,30 +134,6 @@ class _TdSettingsPageState extends State<TdSettingsPage> {
                     title: 'Tower Defense',
                     subtitle: 'Version 1.0.0',
                     showArrow: false,
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 24),
-            // Note
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: AppTheme.surfaceVariant,
-                borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
-              ),
-              child: Row(
-                children: [
-                  Icon(Icons.info_outline, size: 20, color: AppTheme.textMuted),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      'Sound and effects rendering will be implemented in future updates.',
-                      style: GoogleFonts.nunito(
-                        fontSize: 12,
-                        color: AppTheme.textSecondary,
-                      ),
-                    ),
                   ),
                 ],
               ),

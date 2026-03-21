@@ -4,9 +4,13 @@ import 'dart:math';
 import '../data/td_maps.dart';
 
 // Simulation tick rate.
-// The original JS uses per-frame cooldown ticks and divides cooldown by 120
-// to compute seconds. We mirror that by running 120 sim steps / second.
-const double kSimSecondsPerTick = 1 / 120;
+// Optimized to 60Hz for better battery life on mobile devices.
+// The rendering engine interpolates visual movement for smooth 120Hz appearance.
+const double kSimSecondsPerTick = 1 / 60;
+
+// Base speed factor - tiles per second at speed=1
+// Original: speed/24 per tick at 60Hz = speed/24 * 60 = 2.5 tiles/sec
+const double kBaseSpeedTilesPerSecond = 2.5;
 
 const double resistance = 0.5;
 const double weakness = 0.5;
@@ -15,6 +19,12 @@ const double sellConst = 0.8;
 const int tempSpawnCount = 40;
 const int waveCoolTicks = 120;
 const int minDist = 15;
+
+// Status effect durations in seconds (frame-rate independent)
+const double kSlowDurationSeconds = 0.67; // ~40 ticks at 60Hz
+const double kPoisonDurationSeconds = 1.0; // ~60 ticks at 60Hz
+const double kRegenDurationSeconds = 1.0;
+const double kMinSpeedMultiplier = 0.3; // Speed cap at 30% of base
 
 bool _insideCircle(double x, double y, double cx, double cy, double r) {
   final dx = x - cx;
@@ -42,6 +52,68 @@ double _randDouble(Random rng, double min, double max) {
   return min + rng.nextDouble() * (max - min);
 }
 
+// Spatial partitioning grid for efficient enemy queries
+// Used by Tesla tower to avoid O(N^2) checks
+class _SpatialGrid {
+  final int cols;
+  final int rows;
+  late List<List<List<TdEnemy>>> _grid;
+
+  _SpatialGrid(this.cols, this.rows) {
+    _grid = List.generate(
+      cols,
+      (_) => List.generate(rows, (_) => <TdEnemy>[], growable: false),
+      growable: false,
+    );
+  }
+
+  void clear() {
+    for (int c = 0; c < cols; c++) {
+      for (int r = 0; r < rows; r++) {
+        _grid[c][r].clear();
+      }
+    }
+  }
+
+  void add(TdEnemy enemy) {
+    final col = enemy.gridCol;
+    final row = enemy.gridRow;
+    if (col >= 0 && col < cols && row >= 0 && row < rows) {
+      _grid[col][row].add(enemy);
+    }
+  }
+
+  // Get enemies in a specific tile and its neighbors (for chain lightning)
+  List<TdEnemy> getNearby(double centerX, double centerY, int radiusTiles) {
+    final centerCol = centerX.floor();
+    final centerRow = centerY.floor();
+
+    final result = <TdEnemy>[];
+    final seen = <int>{}; // Use hash set to avoid duplicates
+
+    // Check tiles within radius
+    for (int dc = -radiusTiles; dc <= radiusTiles; dc++) {
+      for (int dr = -radiusTiles; dr <= radiusTiles; dr++) {
+        final col = centerCol + dc;
+        final row = centerRow + dr;
+
+        if (col < 0 || col >= cols || row < 0 || row >= rows) continue;
+
+        // Add all enemies in this tile
+        for (final e in _grid[col][row]) {
+          final id = e.hashCode;
+          if (!seen.contains(id)) {
+            seen.add(id);
+            result.add(e);
+          }
+        }
+      }
+    }
+
+    return result;
+  }
+}
+
 class TdSim {
   final TdMapData baseMap;
   final Random rng;
@@ -64,6 +136,15 @@ class TdSim {
   final List<TdTower> towers = [];
   final List<TdMissile> missiles = [];
   final List<TdTempSpawn> tempSpawns = [];
+
+  // Object pool for missiles to reduce GC pressure
+  final TdMissilePool _missilePool = TdMissilePool();
+
+  // Spatial partitioning grid for efficient enemy queries (Tesla tower optimization)
+  late final _SpatialGrid _spatialGrid;
+
+  // Get pooled missiles (for backward compatibility)
+  List<TdMissile> get pooledMissiles => _missilePool.active;
 
   // Wave spawning
   int wave = 0;
@@ -111,6 +192,9 @@ class TdSim {
       (_) => List<bool>.filled(baseMap.rows, false, growable: false),
       growable: false,
     );
+
+    // Initialize spatial partitioning grid
+    _spatialGrid = _SpatialGrid(baseMap.cols, baseMap.rows);
 
     recalculate();
   }
@@ -244,7 +328,8 @@ class TdSim {
       }
     }
 
-    // Convert old positions to either empty (0) or obstacle (1)
+    // Convert old positions to empty (0) to allow tower placement
+    // Don't make them walls (1) as that would permanently block tower placement
     for (final oldPos in oldPositions) {
       // Don't change if a tower is still there
       bool hasTower = false;
@@ -255,8 +340,9 @@ class TdSim {
         }
       }
       if (!hasTower) {
-        // Randomly make it empty or obstacle
-        grid[oldPos.x][oldPos.y] = rng.nextBool() ? 0 : 1;
+        // Always make it empty (0) to allow tower placement
+        // The recalculate() will handle pathfinding correctly
+        grid[oldPos.x][oldPos.y] = 0;
       }
     }
 
@@ -335,7 +421,10 @@ class TdSim {
       type: enemyTypes['boss']!,
     );
     // Boost boss stats based on how many bosses defeated
-    currentBoss!.health *= (1 + bossesDefeated * 0.5);
+    // Changed from linear to exponential scaling to keep late game challenging
+    // Formula: health = base × 1.25^bossesDefeated (25% increase per boss)
+    final healthMultiplier = pow(1.25, bossesDefeated);
+    currentBoss!.health *= healthMultiplier;
     currentBoss!.maxHealth = currentBoss!.health;
     enemies.add(currentBoss!);
     bossSpawned = true;
@@ -702,8 +791,13 @@ class TdSim {
     return enemy;
   }
 
-  /// One simulation tick (120Hz steps).
+  /// One simulation tick (60Hz steps with frame-rate independence).
   void step() {
+    stepWithDelta(kSimSecondsPerTick);
+  }
+
+  /// Frame-rate independent step with delta time
+  void stepWithDelta(double dt) {
     if (health <= 0) return;
 
     if (!paused) {
@@ -728,11 +822,11 @@ class TdSim {
       scd = spawnCool;
     }
 
-    // Update enemies
+    // Update enemies with delta time for frame-rate independence
     for (int i = enemies.length - 1; i >= 0; i--) {
       final e = enemies[i];
       if (!paused) {
-        e.update(this);
+        e.update(this, dt);
       }
 
       // Kill if outside.
@@ -744,10 +838,23 @@ class TdSim {
       } else if (e.isAlive && _atTileCenter(e.posX, e.posY, exit.x, exit.y)) {
         // Exit reached - deal damage but DON'T remove boss
         if (!paused) {
-          health -= e.damage;
+          // Boss only deals damage once per attack interval
+          if (e.type.key == 'boss') {
+            if (e._bossAttackCooldown <= 0) {
+              health -= e.damage;
+              // Set cooldown based on boss speed (slower = faster attack)
+              // Boss attacks every 2-4 seconds randomly
+              e._bossAttackCooldown = 2.0 + rng.nextDouble() * 2.0;
+            }
+          } else {
+            // Regular enemies die after reaching exit and deal damage once
+            health -= e.damage;
+            e.alive = false;
+            enemies.removeAt(i);
+            continue;
+          }
         }
-        // Regular enemies die after reaching exit
-        // Boss stays and continues attacking
+        // Boss stays and continues attacking (not removed)
         if (e.type.key != 'boss') {
           e.alive = false;
           enemies.removeAt(i);
@@ -755,6 +862,12 @@ class TdSim {
       } else if (!e.isAlive) {
         enemies.removeAt(i);
       }
+    }
+
+    // Update spatial grid with current enemy positions (for Tesla tower optimization)
+    _spatialGrid.clear();
+    for (final e in enemies) {
+      _spatialGrid.add(e);
     }
 
     // Update towers (target + attack when cd==0)
@@ -767,12 +880,16 @@ class TdSim {
       }
     }
 
-    // Update missiles (projectiles)
+    // Update missiles (projectiles) and return dead ones to pool
     if (!paused) {
       for (int i = missiles.length - 1; i >= 0; i--) {
         final m = missiles[i];
         m.update(this);
-        if (!m.alive) missiles.removeAt(i);
+        if (!m.alive) {
+          // Return to pool instead of letting GC collect
+          _missilePool.release(m);
+          missiles.removeAt(i);
+        }
       }
     }
 
@@ -936,7 +1053,7 @@ class TdSim {
     final cols = baseMap.cols;
     final rows = baseMap.rows;
 
-    // Clone walkability, temporarily block (col,row).
+    // Build walkable map with the candidate tile blocked
     final walk = List<List<bool>>.generate(
       cols,
       (_) => List<bool>.filled(rows, false, growable: false),
@@ -949,14 +1066,16 @@ class TdSim {
     }
     walk[col][row] = false;
 
-    // BFS from exit over walkable tiles.
+    // Quick check: exit must be walkable
+    if (!walk[exit.x][exit.y]) return false;
+
+    // BFS from exit over walkable tiles - single flow field calculation
     final visited = List<List<bool>>.generate(
       cols,
       (_) => List<bool>.filled(rows, false, growable: false),
       growable: false,
     );
     final q = Queue<TdCoord>();
-    if (!walk[exit.x][exit.y]) return false;
     visited[exit.x][exit.y] = true;
     q.add(exit);
 
@@ -979,15 +1098,24 @@ class TdSim {
       }
     }
 
-    // Check current enemies reachable (except those already on candidate).
-    // Only check if enemy is within bounds of visited array
+    // Check spawnpoints are reachable (O(numSpawns) instead of O(enemies))
+    for (final sp in spawnpoints) {
+      if (!visited[sp.x][sp.y]) return false;
+    }
+
+    // Check Pink Towers (spawn towers) are reachable
+    for (final st in spawnTowers) {
+      if (!visited[st.col][st.row]) return false;
+    }
+
+    // Only check enemies that would be completely trapped
+    // An enemy is only invalid if it's on a walkable tile that's not reachable
     for (final e in enemies) {
       final ec = e.gridCol;
       final er = e.gridRow;
-      // Skip if out of bounds
       if (ec < 0 || er < 0 || ec >= cols || er >= rows) continue;
       if (ec == col && er == row) continue;
-      // Only fail if enemy is on a walkable tile but not reachable
+      // Enemy is trapped if it's on a walkable tile but not reachable
       if (walk[ec][er] && !visited[ec][er]) return false;
     }
 
@@ -1263,6 +1391,86 @@ final Map<String, TdEnemyType> enemyTypes = {
   ),
 };
 
+// StatusManager - prevents effect overstacking and handles frame-rate independent durations
+class _StatusManager {
+  // Effect durations remaining in seconds (frame-rate independent)
+  double _slowRemaining = 0.0;
+  double _poisonRemaining = 0.0;
+  double _regenRemaining = 0.0;
+
+  // Number of active slow sources (for proper stacking logic)
+  int _slowStacks = 0;
+
+  bool get isSlowed => _slowRemaining > 0;
+  bool get isPoisoned => _poisonRemaining > 0;
+  bool get isRegening => _regenRemaining > 0;
+
+  // Apply or refresh slow effect
+  void applySlow() {
+    _slowStacks++;
+    _slowRemaining = kSlowDurationSeconds; // Refresh duration
+  }
+
+  // Apply or refresh poison effect
+  void applyPoison() {
+    _poisonRemaining = kPoisonDurationSeconds; // Refresh duration
+  }
+
+  // Apply or refresh regen effect
+  void applyRegen() {
+    _regenRemaining = kRegenDurationSeconds; // Refresh duration
+  }
+
+  // Calculate current speed multiplier based on slow stacks
+  // Uses multiplicative stacking with a hard floor
+  double getSpeedMultiplier() {
+    if (_slowStacks == 0) return 1.0;
+
+    // Each slow reduces speed by 50%, but we cap at 30% minimum
+    // 1 stack = 0.5, 2 stacks = 0.25, 3+ stacks = 0.3 (capped)
+    double multiplier = pow(0.5, _slowStacks).toDouble();
+    return multiplier.clamp(kMinSpeedMultiplier, 1.0);
+  }
+
+  // Update all effect durations (call with dt each frame)
+  void update(double dt) {
+    if (_slowRemaining > 0) {
+      _slowRemaining -= dt;
+      if (_slowRemaining <= 0) {
+        _slowRemaining = 0;
+        _slowStacks = 0; // Clear all slow stacks when duration expires
+      }
+    }
+
+    if (_poisonRemaining > 0) _poisonRemaining -= dt;
+    if (_regenRemaining > 0) _regenRemaining -= dt;
+  }
+
+  // Process poison/regen ticks (call once per frame)
+  void processTicks(TdEnemy enemy, TdSim sim, double dt) {
+    // Poison: 1 damage per second (scaled by dt for frame-rate independence)
+    if (_poisonRemaining > 0) {
+      // Accumulate fractional damage for smooth frame-rate independence
+      enemy._poisonAccumulator += dt;
+      while (enemy._poisonAccumulator >= 1.0) {
+        enemy.dealDamage(1, 'poison', sim);
+        enemy._poisonAccumulator -= 1.0;
+      }
+    }
+
+    // Regen: 1 health per second with 20% chance (scaled by dt)
+    if (_regenRemaining > 0 && enemy.health < enemy.maxHealth) {
+      enemy._regenAccumulator += dt;
+      while (enemy._regenAccumulator >= 1.0) {
+        if (sim.rng.nextDouble() < 0.2) {
+          enemy.health = (enemy.health + 1).clamp(0.0, enemy.maxHealth);
+        }
+        enemy._regenAccumulator -= 1.0;
+      }
+    }
+  }
+}
+
 class TdEnemy {
   final TdEnemyType type;
 
@@ -1279,12 +1487,24 @@ class TdEnemy {
   late double maxHealth;
   late double speed;
 
-  final List<_EnemyEffect> effects = [];
+  // Base speed from type (never modified directly)
+  late final double _baseSpeed;
+
+  // Frame-rate independent status manager
+  final _StatusManager _statusManager = _StatusManager();
+
+  // Accumulators for fractional damage/healing (frame-rate independence)
+  double _poisonAccumulator = 0.0;
+  double _regenAccumulator = 0.0;
+
+  // Boss attack cooldown (seconds) - prevents continuous damage at exit
+  double _bossAttackCooldown = 0.0;
 
   TdEnemy({required this.posX, required this.posY, required this.type}) {
     health = type.health;
     maxHealth = health;
-    speed = type.speed;
+    _baseSpeed = type.speed;
+    speed = _baseSpeed;
   }
 
   bool get isAlive => alive;
@@ -1292,25 +1512,23 @@ class TdEnemy {
   int get gridCol => posX.floor();
   int get gridRow => posY.floor();
 
-  void applyEffect(String name, int duration) {
-    // JS: if immune includes name -> return. Also only one of each effect allowed.
+  void applyEffect(String name, int durationTicks) {
+    // Convert legacy tick duration to seconds for compatibility
+    // durationTicks at 60Hz = durationTicks/60 seconds
+    final durationSeconds = durationTicks / 60.0;
+    applyEffectSeconds(name, durationSeconds);
+  }
+
+  void applyEffectSeconds(String name, double durationSeconds) {
+    // JS: if immune includes name -> return.
     if (_immuneContains(name)) return;
-    for (final e in effects) {
-      if (e.name == name) return;
-    }
 
     if (name == 'slow') {
-      // Matches effects.slow onStart.
-      final oldSpeed = speed;
-      speed = speed / 2.0;
-      effects.add(_EnemyEffect.slow(duration: duration, oldSpeed: oldSpeed));
+      _statusManager.applySlow();
     } else if (name == 'poison') {
-      effects.add(_EnemyEffect.simple(name: name, duration: duration));
+      _statusManager.applyPoison();
     } else if (name == 'regen') {
-      effects.add(_EnemyEffect.simple(name: name, duration: duration));
-    } else {
-      // Unknown effect
-      effects.add(_EnemyEffect.simple(name: name, duration: duration));
+      _statusManager.applyRegen();
     }
   }
 
@@ -1377,29 +1595,32 @@ class TdEnemy {
     alive = false;
   }
 
-  void update(TdSim sim) {
-    // Status effects (slow/poison/regen)
-    for (int i = effects.length - 1; i >= 0; i--) {
-      final ef = effects[i];
-      ef.onTick(this, sim);
-      ef.duration--;
-      if (ef.duration == 0) {
-        ef.onEnd(this);
-        effects.removeAt(i);
-      }
-    }
+  // Frame-rate independent update using delta time
+  void update(TdSim sim, double dt) {
+    // Update status effect durations
+    _statusManager.update(dt);
+
+    // Process poison/regen ticks
+    _statusManager.processTicks(this, sim, dt);
 
     // Medic periodically applies regen to nearby enemies.
     if (type.medicTick) {
-      final affected = sim.enemiesInExplosionRange(
-        posX,
-        posY,
-        2,
-      ); // radius tiles, JS uses getInRange(radius=2) => effective=3
+      final affected = sim.enemiesInExplosionRange(posX, posY, 2);
       for (final other in affected) {
-        other.applyEffect('regen', 1);
+        other.applyEffectSeconds('regen', kRegenDurationSeconds);
       }
     }
+
+    // Boss attack cooldown countdown
+    if (type.key == 'boss' && _bossAttackCooldown > 0) {
+      _bossAttackCooldown -= dt;
+      if (_bossAttackCooldown < 0) _bossAttackCooldown = 0;
+    }
+
+    // Calculate current speed based on status effects
+    // Never modify base speed - calculate dynamically
+    final speedMultiplier = _statusManager.getSpeedMultiplier();
+    final currentSpeed = _baseSpeed * speedMultiplier;
 
     // Movement using path direction map.
     if (_atTileCenter(posX, posY, gridCol, gridRow)) {
@@ -1408,20 +1629,25 @@ class TdEnemy {
       if (col < 0 ||
           row < 0 ||
           col >= sim.baseMap.cols ||
-          row >= sim.baseMap.rows)
+          row >= sim.baseMap.rows) {
         return;
+      }
       final dir = sim.paths[col][row];
+
+      // Frame-rate independent velocity: tiles per second
+      final velocity = currentSpeed * kBaseSpeedTilesPerSecond * dt;
+
       if (dir == 1) {
-        velX = -(speed / 24.0);
+        velX = -velocity;
         velY = 0;
       } else if (dir == 2) {
-        velY = -(speed / 24.0);
+        velY = -velocity;
         velX = 0;
       } else if (dir == 3) {
-        velX = speed / 24.0;
+        velX = velocity;
         velY = 0;
       } else if (dir == 4) {
-        velY = speed / 24.0;
+        velY = velocity;
         velX = 0;
       } else {
         velX = 0;
@@ -1434,6 +1660,7 @@ class TdEnemy {
   }
 }
 
+// Legacy effect class kept for compatibility
 class _EnemyEffect {
   final String name;
   int duration;
@@ -1446,21 +1673,11 @@ class _EnemyEffect {
       duration = duration;
 
   void onTick(TdEnemy e, TdSim sim) {
-    if (name == 'poison') {
-      e.dealDamage(1, 'poison', sim);
-    } else if (name == 'regen') {
-      // JS: random() < 0.2. We approximate with sim.rng.
-      if (e.health < e.maxHealth && sim.rng.nextDouble() < 0.2) {
-        e.health += 1;
-        if (e.health > e.maxHealth) e.health = e.maxHealth;
-      }
-    }
+    // Deprecated - use StatusManager instead
   }
 
   void onEnd(TdEnemy e) {
-    if (name == 'slow') {
-      e.speed = oldSpeed ?? e.speed;
-    }
+    // Deprecated - use StatusManager instead
   }
 }
 
@@ -1722,6 +1939,9 @@ class TdTower {
     target.dealDamage(dmg, type, sim);
   }
 
+  // Maximum damage cap for beam emitter to prevent exponential melting
+  static const double _maxBeamDamage = 500.0;
+
   void _fireBeamEmitter(TdSim sim, TdEnemy target) {
     if (lastLaserTarget == target) {
       laserDuration++;
@@ -1731,8 +1951,11 @@ class TdTower {
     }
 
     // JS: var d = random(damageMin, damageMax); var damage = d * sq(duration)
+    // Changed from quadratic to linear scaling with a hard cap
+    // This prevents bosses from being instantly melted when slowed/stunned
     final d = _randDouble(sim.rng, damageMin, damageMax);
-    final damage = d * (laserDuration * laserDuration);
+    final linearDamage = d * laserDuration; // Linear instead of quadratic
+    final damage = linearDamage.clamp(0.0, _maxBeamDamage);
     target.dealDamage(damage, type, sim);
     // beam emitter's upgrade calls this.onHit(e); no onHit defined, so nothing else.
   }
@@ -1796,7 +2019,8 @@ class TdTower {
   void _fireRocketProjectile(TdSim sim, TdEnemy target) {
     final speed = upgraded ? 0.25 : 0.1666667;
     final blastRadius = upgraded ? 2.0 : 1.0;
-    final missile = TdMissile(
+    // Use object pool instead of creating new missile
+    final missile = sim._missilePool.acquire(
       posX: posX,
       posY: posY,
       target: target,
@@ -1821,12 +2045,110 @@ class TdTower {
     while (dmg > 1) {
       last.dealDamage(dmg, type, sim);
       targets.add(last);
-      final next = sim.getNearestTarget(sim.enemies, last, targets);
+
+      // Use spatial partitioning for O(1) neighbor lookup instead of O(N)
+      // Chain lightning jumps to nearby enemies within 2 tiles
+      final nearby = sim._spatialGrid.getNearby(last.posX, last.posY, 2);
+      final next = sim.getNearestTarget(nearby, last, targets);
+
       if (next == null) break;
       last = next;
       dmg /= 2;
     }
   }
+}
+
+// Object Pool for missiles to reduce GC pressure
+class TdMissilePool {
+  static const int _initialCapacity = 200;
+  static const int _maxCapacity = 500;
+
+  final List<TdMissile> _available = [];
+  final List<TdMissile> _active = [];
+
+  TdMissilePool() {
+    // Pre-allocate missiles to avoid runtime allocation
+    for (int i = 0; i < _initialCapacity; i++) {
+      _available.add(TdMissile._empty());
+    }
+  }
+
+  TdMissile acquire({
+    required double posX,
+    required double posY,
+    required TdEnemy target,
+    required double damageMin,
+    required double damageMax,
+    required double blastRadius,
+    required int rangeTiles,
+    required double speedTilesPerTick,
+    required int lifetimeTicks,
+  }) {
+    TdMissile missile;
+    if (_available.isNotEmpty) {
+      missile = _available.removeLast();
+      missile._reset(
+        posX: posX,
+        posY: posY,
+        target: target,
+        damageMin: damageMin,
+        damageMax: damageMax,
+        blastRadius: blastRadius,
+        rangeTiles: rangeTiles,
+        speedTilesPerTick: speedTilesPerTick,
+        lifetimeTicks: lifetimeTicks,
+      );
+    } else {
+      // Pool exhausted - create new (but cap total size)
+      if (_active.length >= _maxCapacity) {
+        // Recycle oldest active missile
+        missile = _active.removeAt(0);
+        missile._reset(
+          posX: posX,
+          posY: posY,
+          target: target,
+          damageMin: damageMin,
+          damageMax: damageMax,
+          blastRadius: blastRadius,
+          rangeTiles: rangeTiles,
+          speedTilesPerTick: speedTilesPerTick,
+          lifetimeTicks: lifetimeTicks,
+        );
+      } else {
+        missile = TdMissile(
+          posX: posX,
+          posY: posY,
+          target: target,
+          damageMin: damageMin,
+          damageMax: damageMax,
+          blastRadius: blastRadius,
+          rangeTiles: rangeTiles,
+          speedTilesPerTick: speedTilesPerTick,
+          lifetimeTicks: lifetimeTicks,
+        );
+      }
+    }
+    _active.add(missile);
+    return missile;
+  }
+
+  void release(TdMissile missile) {
+    if (_active.remove(missile)) {
+      missile._deactivate();
+      if (_available.length < _initialCapacity) {
+        _available.add(missile);
+      }
+    }
+  }
+
+  void releaseAll(List<TdMissile> missiles) {
+    for (final m in missiles) {
+      release(m);
+    }
+    missiles.clear();
+  }
+
+  List<TdMissile> get active => _active;
 }
 
 class TdMissile {
@@ -1836,13 +2158,13 @@ class TdMissile {
 
   bool alive = true;
 
-  final double damageMin;
-  final double damageMax;
+  double damageMin;
+  double damageMax;
 
-  final double blastRadius;
-  final int rangeTiles;
+  double blastRadius;
+  int rangeTiles;
 
-  final double speedTilesPerTick;
+  double speedTilesPerTick;
   int lifetimeTicks;
 
   TdMissile({
@@ -1856,6 +2178,47 @@ class TdMissile {
     required this.speedTilesPerTick,
     required this.lifetimeTicks,
   });
+
+  // Factory constructor for empty missile (for pooling)
+  TdMissile._empty()
+    : posX = 0,
+      posY = 0,
+      target = TdEnemy(posX: 0, posY: 0, type: enemyTypes['weak']!),
+      damageMin = 0,
+      damageMax = 0,
+      blastRadius = 0,
+      rangeTiles = 0,
+      speedTilesPerTick = 0,
+      lifetimeTicks = 0;
+
+  // Reset missile for reuse from pool
+  void _reset({
+    required double posX,
+    required double posY,
+    required TdEnemy target,
+    required double damageMin,
+    required double damageMax,
+    required double blastRadius,
+    required int rangeTiles,
+    required double speedTilesPerTick,
+    required int lifetimeTicks,
+  }) {
+    this.posX = posX;
+    this.posY = posY;
+    this.target = target;
+    this.damageMin = damageMin;
+    this.damageMax = damageMax;
+    this.blastRadius = blastRadius;
+    this.rangeTiles = rangeTiles;
+    this.speedTilesPerTick = speedTilesPerTick;
+    this.lifetimeTicks = lifetimeTicks;
+    alive = true;
+  }
+
+  // Deactivate for return to pool
+  void _deactivate() {
+    alive = false;
+  }
 
   void update(TdSim sim) {
     if (!alive) return;
@@ -1888,12 +2251,17 @@ class TdMissile {
     // Move toward target.
     final dx = target.posX - posX;
     final dy = target.posY - posY;
-    final dist = sqrt(dx * dx + dy * dy);
-    if (dist < target.type.radiusTiles) {
+    final distSq = dx * dx + dy * dy;
+    final radiusSq = target.type.radiusTiles * target.type.radiusTiles;
+
+    // Use squared distance check to avoid expensive sqrt
+    if (distSq < radiusSq) {
       explode(sim);
       return;
     }
 
+    // Only compute sqrt when we need to normalize the vector
+    final dist = sqrt(distSq);
     final ux = dx / dist;
     final uy = dy / dist;
     posX += ux * speedTilesPerTick;
