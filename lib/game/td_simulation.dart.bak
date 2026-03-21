@@ -1,7 +1,6 @@
 import 'dart:collection';
 import 'dart:math';
 
-import '../config/td_game_config.dart';
 import '../data/td_maps.dart';
 import '../services/sound_service.dart';
 
@@ -14,22 +13,19 @@ const double kSimSecondsPerTick = 1 / 60;
 // Original: speed/24 per tick at 60Hz = speed/24 * 60 = 2.5 tiles/sec
 const double kBaseSpeedTilesPerSecond = 2.5;
 
-const double resistance = TdGameConfig.resistanceMultiplier;
-const double weakness = TdGameConfig.weaknessMultiplier;
-const double sellConst = TdGameConfig.towerSellMultiplier;
+const double resistance = 0.5;
+const double weakness = 0.5;
+const double sellConst = 0.8;
 
-const int tempSpawnCount = TdGameConfig.enemiesPerTempSpawn;
-const int waveCoolTicks = TdGameConfig.defaultTicksBetweenWaves;
-const int minDist = TdGameConfig.minSpawnDistance;
+const int tempSpawnCount = 40;
+const int waveCoolTicks = 120;
+const int minDist = 15;
 
 // Status effect durations in seconds (frame-rate independent)
-const double kSlowDurationSeconds =
-    TdGameConfig.slowDurationSeconds; // ~40 ticks at 60Hz
-const double kPoisonDurationSeconds =
-    TdGameConfig.poisonDurationSeconds; // ~60 ticks at 60Hz
-const double kRegenDurationSeconds = TdGameConfig.regenDurationSeconds;
-const double kMinSpeedMultiplier =
-    TdGameConfig.minSpeedMultiplier; // Speed cap at 30% of base
+const double kSlowDurationSeconds = 0.67; // ~40 ticks at 60Hz
+const double kPoisonDurationSeconds = 1.0; // ~60 ticks at 60Hz
+const double kRegenDurationSeconds = 1.0;
+const double kMinSpeedMultiplier = 0.3; // Speed cap at 30% of base
 
 bool _insideCircle(double x, double y, double cx, double cy, double r) {
   final dx = x - cx;
@@ -502,45 +498,44 @@ class TdSim {
 
     void push(List<dynamic> pattern) => waves.add(pattern);
 
-    // Waves 1-5: Reduced spawn rate by 50% for easier early game (cash deduction now working)
     if (isWave(0, 3)) {
       push([
-        80, // Was 40 - 50% slower spawn rate
+        40,
         ['weak', 50],
       ]);
     }
     if (isWave(2, 4)) {
       push([
-        40, // Was 20 - 50% slower spawn rate
+        20,
         ['weak', 25],
       ]);
     }
     if (isWave(2, 7)) {
       push([
-        60, // Was 30 - 50% slower spawn rate
+        30,
         ['weak', 25],
         ['strong', 25],
       ]);
       push([
-        40, // Was 20 - 50% slower spawn rate
+        20,
         ['strong', 25],
       ]);
     }
     if (isWave(3, 7)) {
       push([
-        80, // Was 40 - 50% slower spawn rate
+        40,
         ['fast', 25],
       ]);
     }
     if (isWave(4, 14)) {
       push([
-        40, // Was 20 - 50% slower spawn rate
+        20,
         ['fast', 50],
       ]);
     }
     if (isWave(5, 6)) {
       push([
-        40, // Was 20 - 50% slower spawn rate
+        20,
         ['strong', 50],
         ['fast', 25],
       ]);
@@ -822,9 +817,7 @@ class TdSim {
       final name = newEnemies.removeAt(0);
       for (final tower in spawnTowers) {
         // Enemies from near-exit towers move at 60% speed
-        final speedMultiplier = tower.isNearExit
-            ? TdGameConfig.nearExitSpeedMultiplier
-            : 1.0;
+        final speedMultiplier = tower.isNearExit ? 0.6 : 1.0;
         enemies.add(
           createEnemyAt(
             TdCoord(tower.col, tower.row),
@@ -854,14 +847,11 @@ class TdSim {
         if (!paused) {
           // Boss only deals damage once per attack interval
           if (e.type.key == 'boss') {
-            if (e._bossAttackTimer >= e._bossNextAttackTime) {
+            if (e._bossAttackCooldown <= 0) {
               health -= e.damage;
-              e._bossAttackTimer = 0;
-              e._bossNextAttackTime =
-                  TdGameConfig.bossAttackIntervalMin +
-                  rng.nextDouble() *
-                      (TdGameConfig.bossAttackIntervalMax -
-                          TdGameConfig.bossAttackIntervalMin);
+              // Set cooldown based on boss speed (slower = faster attack)
+              // Boss attacks every 2-4 seconds randomly
+              e._bossAttackCooldown = 2.0 + rng.nextDouble() * 2.0;
             }
           } else {
             // Regular enemies die after reaching exit and deal damage once
@@ -881,7 +871,11 @@ class TdSim {
       }
     }
 
-    // OPTIMIZED: Spatial grid already cleared and populated during enemy update loop above (single pass)
+    // Update spatial grid with current enemy positions (for Tesla tower optimization)
+    _spatialGrid.clear();
+    for (final e in enemies) {
+      _spatialGrid.add(e);
+    }
 
     // Update towers (target + attack when cd==0)
     if (!paused) {
@@ -1062,34 +1056,6 @@ class TdSim {
     return true;
   }
 
-  /// OPTIMIZATION: Check if placing tower at (col,row) would block any enemy's path
-  /// Returns true if the tile is on or near any enemy's current path to exit
-  bool _isOnAnyEnemyPath(int col, int row) {
-    // Check if any enemy is moving toward/through this tile
-    for (final e in enemies) {
-      final ec = e.gridCol;
-      final er = e.gridRow;
-
-      // Simple bounding box check - is enemy within 3 tiles?
-      if ((ec - col).abs() <= 3 && (er - row).abs() <= 3) {
-        // Enemy is nearby, check if our tile blocks their direct path to exit
-        if (_tileBlocksPath(col, row, ec, er)) return true;
-      }
-    }
-    return false;
-  }
-
-  /// Check if placing at (col,row) would block enemy at (enemyCol,enemyRow)
-  bool _tileBlocksPath(int col, int row, int enemyCol, int enemyRow) {
-    final enemyDist = dists[enemyCol][enemyRow];
-    final candidateDist = dists[col][row];
-
-    if (candidateDist == null || enemyDist == null) return false;
-
-    // If candidate tile is closer to exit than enemy, it might block
-    return candidateDist < enemyDist;
-  }
-
   bool placeable(int col, int row) {
     final cols = baseMap.cols;
     final rows = baseMap.rows;
@@ -1200,14 +1166,8 @@ class TdSim {
     recalculate();
   }
 
-  void upgradeTower(TdTower tower, int upgradeCost) {
+  void upgradeTower(TdTower tower) {
     if (!tower.canUpgrade) return;
-    if (cash < upgradeCost) return;
-
-    // Deduct cash
-    cash -= upgradeCost;
-
-    // Apply the upgrade
     tower.applyUpgrade();
   }
 
@@ -1544,9 +1504,8 @@ class TdEnemy {
   double _poisonAccumulator = 0.0;
   double _regenAccumulator = 0.0;
 
-  // Boss attack timing (seconds) - time-based for consistent difficulty
-  double _bossAttackTimer = 0.0;
-  double _bossNextAttackTime = 3.0;
+  // Boss attack cooldown (seconds) - prevents continuous damage at exit
+  double _bossAttackCooldown = 0.0;
 
   TdEnemy({required this.posX, required this.posY, required this.type}) {
     health = type.health;
@@ -1639,13 +1598,6 @@ class TdEnemy {
     }
   }
 
-  void onExit(TdSim sim) {
-    if (!alive) return;
-    alive = false;
-    // Prevent health from going below zero
-    sim.health = max(0, sim.health - type.damage);
-  }
-
   void kill() {
     alive = false;
   }
@@ -1667,8 +1619,9 @@ class TdEnemy {
     }
 
     // Boss attack cooldown countdown
-    if (type.key == 'boss') {
-      _bossAttackTimer += dt;
+    if (type.key == 'boss' && _bossAttackCooldown > 0) {
+      _bossAttackCooldown -= dt;
+      if (_bossAttackCooldown < 0) _bossAttackCooldown = 0;
     }
 
     // Calculate current speed based on status effects
@@ -1860,8 +1813,6 @@ class TdTower {
 
   bool upgraded = false;
   TowerUpgrade? upgrade;
-  String?
-  appliedUpgradeName; // Stores which upgrade was applied (e.g., 'machineGun')
 
   TdTower({required this.towerType, required this.col, required this.row})
     : posX = col + 0.5,
@@ -1896,7 +1847,6 @@ class TdTower {
 
     totalCost += u.cost.toDouble();
     upgraded = true;
-    appliedUpgradeName = u.name; // Store which upgrade was applied
   }
 
   int sellPrice() => (totalCost * sellConst).floor();
@@ -2364,6 +2314,9 @@ class TdMissile {
 }
 
 // Tower types and upgrades ported from `towerdefense/scripts/towers.js`.
+//
+// Note: we only port the gameplay stats and attack behavior; fancy drawing
+// (barrel shapes, line styles) is intentionally omitted for MVP.
 final Map<String, TdTowerType> towerTypes = {
   'gun': TdTowerType(
     key: 'gun',

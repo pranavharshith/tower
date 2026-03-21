@@ -206,7 +206,12 @@ class TdGame extends FlameGame with TapCallbacks {
       cash = gen.cash;
     }
 
-    _sim = TdSim(baseMap: mapData, rng: _rng, cash: cash);
+    _sim = TdSim(
+      baseMap: mapData,
+      rng: _rng,
+      cash: cash,
+      soundService: _soundService,
+    );
     _sim!.startGame();
 
     _bestWave = 0;
@@ -241,23 +246,23 @@ class TdGame extends FlameGame with TapCallbacks {
     selectionRevision.value++;
   }
 
+  void upgradeTower(TdTower tower) {
+    if (!tower.canUpgrade) return;
+
+    final upgradeCost = tower.towerType.upgrade?.cost ?? 0;
+
+    if (_sim!.cash < upgradeCost) {
+      onPlacementFailed?.call('Not enough cash for upgrade');
+      return;
+    }
+
+    _sim!.upgradeTower(tower, upgradeCost);
+    selectionRevision.value++;
+  }
+
   void upgradeSelected() {
     if (selectedTower == null) return;
-
-    // Check if tower can be upgraded
-    if (!selectedTower!.canUpgrade) return;
-
-    // Check if player has enough cash
-    final upgradeCost = selectedTower!.towerType.upgrade?.cost ?? 0;
-    if (_sim!.cash >= upgradeCost) {
-      // Deduct cash and upgrade
-      _sim!.cash -= upgradeCost;
-      sim.upgradeTower(selectedTower!);
-      // Don't clear selection - keep it so user can see upgraded stats
-      // Just increment revision to trigger UI refresh
-      selectionRevision.value++;
-    }
-    // If not enough cash, do nothing (button should be disabled in UI)
+    upgradeTower(selectedTower!);
   }
 
   void sellSelected() {
@@ -328,7 +333,21 @@ class TdGame extends FlameGame with TapCallbacks {
         _pendingTowerRow == null) {
       return;
     }
+
+    // Check if player has enough cash
+    final towerCost = _pendingTowerType!.cost;
+    if (_sim!.cash < towerCost) {
+      // Not enough cash - cancel placement
+      onPlacementFailed?.call('Not enough cash');
+      cancelPendingTower();
+      return;
+    }
+
+    // Deduct cash and place tower
+    _sim!.cash -= towerCost;
     _sim!.placeTower(_pendingTowerType!, _pendingTowerCol!, _pendingTowerRow!);
+
+    // Clear pending state
     _pendingTowerType = null;
     _pendingTowerCol = null;
     _pendingTowerRow = null;

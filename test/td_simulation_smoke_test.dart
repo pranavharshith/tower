@@ -2,8 +2,8 @@ import 'dart:math';
 
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:flutter_tower/data/td_maps.dart';
 import 'package:flutter_tower/data/td_random_maps.dart';
+import 'package:flutter_tower/services/sound_service.dart';
 import 'package:flutter_tower/game/td_simulation.dart';
 
 void main() {
@@ -15,7 +15,7 @@ void main() {
 
     for (final key in premadeKeys) {
       final map = tdMaps.loadPremade(key);
-      final sim = TdSim(baseMap: map, rng: Random(1), cash: 55);
+      final sim = TdSim(baseMap: map, rng: Random(1), cash: 55, soundService: SoundService());
       sim.startGame();
       expect(sim.enemies, isEmpty);
 
@@ -31,7 +31,7 @@ void main() {
   test('Placing a tower near spawn causes auto-attack damage', () {
     final tdMaps = TdMaps();
     final map = tdMaps.loadPremade('loops');
-    final sim = TdSim(baseMap: map, rng: Random(2), cash: 55);
+    final sim = TdSim(baseMap: map, rng: Random(2), cash: 55, soundService: SoundService());
     sim.startGame();
 
     final gun = towerTypes['gun']!;

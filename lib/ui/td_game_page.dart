@@ -152,7 +152,7 @@ class _TdGamePageState extends State<TdGamePage> {
     final sellPrice = tower.sellPrice();
     final upgradeCost = tower.towerType.upgrade?.cost;
     final canUpgrade = !tower.upgraded && tower.towerType.upgrade != null;
-    final cash = _game.sim?.cash ?? 0;
+    final cash = _game.sim.cash;
     final canAffordUpgrade =
         canUpgrade && upgradeCost != null && cash >= upgradeCost;
 
@@ -164,9 +164,9 @@ class _TdGamePageState extends State<TdGamePage> {
         tower: tower,
         onUpgrade: canAffordUpgrade
             ? () {
-                // Close modal and process upgrade
+                // Close modal and show upgrade confirmation
                 Navigator.pop(context);
-                _game.upgradeSelected();
+                _showUpgradeConfirmation(tower);
               }
             : null, // Disabled when can't afford or already upgraded
         onSell: () {
@@ -174,6 +174,223 @@ class _TdGamePageState extends State<TdGamePage> {
           _showSellConfirmation(tower, sellPrice);
         },
         canAffordUpgrade: canAffordUpgrade,
+      ),
+    );
+  }
+
+  void _showUpgradeConfirmation(TdTower tower) {
+    final upgrade = tower.towerType.upgrade;
+    if (upgrade == null) return;
+
+    final upgradeCost = upgrade.cost;
+    final cash = _game.sim.cash;
+
+    // Calculate stat changes
+    final oldRange = tower.range;
+    final newRange = upgrade.range ?? oldRange;
+    final rangeDiff = newRange - oldRange;
+
+    final oldDpsMin = tower.damageMin;
+    final newDpsMin = upgrade.damageMin ?? oldDpsMin;
+    final dpsMinDiff = newDpsMin - oldDpsMin;
+
+    final oldDpsMax = tower.damageMax;
+    final newDpsMax = upgrade.damageMax ?? oldDpsMax;
+    // dpsMaxDiff calculated but not displayed separately (we use min diff for color)
+
+    final oldCooldownAvg = (tower.cooldownMin + tower.cooldownMax) / 120.0;
+    final newCooldownMin = upgrade.cooldownMin ?? tower.cooldownMin;
+    final newCooldownMax = upgrade.cooldownMax ?? tower.cooldownMax;
+    final newCooldownAvg = (newCooldownMin + newCooldownMax) / 120.0;
+    final cooldownDiff = oldCooldownAvg - newCooldownAvg; // Positive = faster
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        backgroundColor: AppTheme.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppTheme.radiusLarge),
+        ),
+        title: Row(
+          children: [
+            Icon(Icons.upgrade_rounded, color: AppTheme.success, size: 32),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                'Upgrade to ${upgrade.title}?',
+                style: GoogleFonts.nunito(
+                  fontWeight: FontWeight.bold,
+                  color: AppTheme.textPrimary,
+                  fontSize: 20,
+                ),
+              ),
+            ),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Cost display
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppTheme.error.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.attach_money_rounded,
+                      color: AppTheme.mustard,
+                      size: 20,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Cost: \$$upgradeCost',
+                      style: GoogleFonts.nunito(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 16,
+                        color: AppTheme.textPrimary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+              // Stat changes header
+              Text(
+                'Stat Changes:',
+                style: GoogleFonts.nunito(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                  color: AppTheme.textSecondary,
+                ),
+              ),
+              const SizedBox(height: 8),
+              // Range change
+              _StatChangeRow(
+                icon: Icons.social_distance_rounded,
+                label: 'Range',
+                oldValue: '$oldRange tiles',
+                newValue: '$newRange tiles',
+                change: rangeDiff,
+                isGoodIfHigher: true,
+              ),
+              // Damage change
+              _StatChangeRow(
+                icon: Icons.bolt_rounded,
+                label: 'Damage',
+                oldValue:
+                    '${oldDpsMin.toStringAsFixed(0)}-${oldDpsMax.toStringAsFixed(0)}',
+                newValue:
+                    '${newDpsMin.toStringAsFixed(0)}-${newDpsMax.toStringAsFixed(0)}',
+                change: dpsMinDiff, // Use min diff for color
+                isGoodIfHigher: true,
+              ),
+              // Cooldown change
+              _StatChangeRow(
+                icon: Icons.timer_rounded,
+                label: 'Cooldown',
+                oldValue: '${oldCooldownAvg.toStringAsFixed(2)}s',
+                newValue: '${newCooldownAvg.toStringAsFixed(2)}s',
+                change: cooldownDiff, // Already inverted (positive = good)
+                isGoodIfHigher:
+                    false, // Lower is better, but we inverted the value
+              ),
+              // Cash remaining
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppTheme.success.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.account_balance_wallet_rounded,
+                      color: AppTheme.success,
+                      size: 20,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Cash After: \$${cash - upgradeCost}',
+                      style: GoogleFonts.nunito(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 14,
+                        color: AppTheme.success,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context); // Close dialog
+            },
+            style: TextButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+            ),
+            child: Text(
+              'Cancel',
+              style: GoogleFonts.nunito(
+                color: AppTheme.textSecondary,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          ElevatedButton.icon(
+            onPressed: () {
+              Navigator.pop(context); // Close dialog
+              _game.upgradeTower(tower); // Execute upgrade with explicit tower
+              // Show success feedback
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Row(
+                      children: [
+                        Icon(Icons.check_circle_rounded, color: Colors.white),
+                        const SizedBox(width: 12),
+                        Text(
+                          'Tower upgraded to ${upgrade.title}!',
+                          style: GoogleFonts.nunito(
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                    backgroundColor: AppTheme.success,
+                    duration: const Duration(seconds: 2),
+                    behavior: SnackBarBehavior.floating,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                );
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.success,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
+            icon: const Icon(Icons.check_rounded),
+            label: Text(
+              'Upgrade',
+              style: GoogleFonts.nunito(fontWeight: FontWeight.bold),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -745,6 +962,117 @@ class _TdGamePageState extends State<TdGamePage> {
   }
 }
 
+// Widget to display stat changes with visual indicators
+class _StatChangeRow extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String oldValue;
+  final String newValue;
+  final num change;
+  final bool isGoodIfHigher; // true if higher value is better (range, damage)
+  // false if lower value is better (cooldown)
+
+  const _StatChangeRow({
+    required this.icon,
+    required this.label,
+    required this.oldValue,
+    required this.newValue,
+    required this.change,
+    required this.isGoodIfHigher,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    // Determine if the change is positive or negative
+    final isPositive = isGoodIfHigher ? change >= 0 : change <= 0;
+    final changeColor = isPositive ? AppTheme.success : AppTheme.error;
+    final changeIcon = isPositive
+        ? Icons.trending_up_rounded
+        : Icons.trending_down_rounded;
+    final changeSign = isPositive ? '+' : '';
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        children: [
+          // Icon
+          Container(
+            width: 32,
+            height: 32,
+            decoration: BoxDecoration(
+              color: changeColor.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Icon(icon, size: 18, color: changeColor),
+          ),
+          const SizedBox(width: 12),
+          // Label
+          Expanded(
+            child: Text(
+              label,
+              style: GoogleFonts.nunito(
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+                color: AppTheme.textSecondary,
+              ),
+            ),
+          ),
+          // Old value
+          Text(
+            oldValue,
+            style: GoogleFonts.nunito(
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+              color: AppTheme.textSecondary,
+              decoration: TextDecoration.lineThrough,
+            ),
+          ),
+          const SizedBox(width: 8),
+          // Arrow
+          Icon(
+            Icons.arrow_forward_rounded,
+            size: 16,
+            color: AppTheme.textSecondary,
+          ),
+          const SizedBox(width: 8),
+          // New value with change indicator
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                newValue,
+                style: GoogleFonts.nunito(
+                  fontSize: 13,
+                  fontWeight: FontWeight.bold,
+                  color: changeColor,
+                ),
+              ),
+              const SizedBox(width: 4),
+              Icon(changeIcon, size: 16, color: changeColor),
+              Text(
+                '($changeSign${_formatChange(change)})',
+                style: GoogleFonts.nunito(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: changeColor,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _formatChange(num change) {
+    if (change is int) {
+      return change.abs().toString();
+    } else {
+      return change.abs().toStringAsFixed(2);
+    }
+  }
+}
+
 class _HudItem extends StatelessWidget {
   final IconData icon;
   final Color iconColor;
@@ -925,6 +1253,15 @@ class _TowerStatsSheet extends StatelessWidget {
       st.color[2],
     );
 
+    // Determine display title - show upgrade name if upgraded
+    String displayTitle = st.title;
+    String? appliedUpgradeName;
+    if (tower.upgraded && st.upgrade != null) {
+      // Use the stored upgrade name if available, otherwise fallback to upgrade title
+      appliedUpgradeName = tower.appliedUpgradeName ?? st.upgrade!.title;
+      displayTitle = appliedUpgradeName;
+    }
+
     return Container(
       decoration: BoxDecoration(
         color: AppTheme.surface,
@@ -971,7 +1308,7 @@ class _TowerStatsSheet extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      st.title,
+                      displayTitle,
                       style: GoogleFonts.nunito(
                         fontSize: 24,
                         fontWeight: FontWeight.w800,
@@ -987,6 +1324,38 @@ class _TowerStatsSheet extends StatelessWidget {
                         color: AppTheme.textSecondary,
                       ),
                     ),
+                    if (tower.upgraded)
+                      Container(
+                        margin: const EdgeInsets.only(top: 4),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppTheme.success.withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.star_rounded,
+                              size: 12,
+                              color: AppTheme.success,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              tower.appliedUpgradeName?.toUpperCase() ??
+                                  'UPGRADED',
+                              style: GoogleFonts.nunito(
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                                color: AppTheme.success,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                   ],
                 ),
               ),
@@ -1046,6 +1415,39 @@ class _TowerStatsSheet extends StatelessWidget {
                         fontSize: 14,
                         fontWeight: FontWeight.w700,
                       ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+              ] else if (tower.upgraded) ...[
+                // Show "Max Level" badge instead of upgrade button
+                Expanded(
+                  flex: 2,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    decoration: BoxDecoration(
+                      color: AppTheme.success.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(AppTheme.radiusPill),
+                      border: Border.all(color: AppTheme.success, width: 2),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.stars_rounded,
+                          color: AppTheme.success,
+                          size: 20,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          'MAX LEVEL',
+                          style: GoogleFonts.nunito(
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                            color: AppTheme.success,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ),

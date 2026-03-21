@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../services/td_prefs.dart';
+import 'tutorial_overlay.dart';
 import 'app_theme.dart';
 
 class TdSettingsPage extends StatefulWidget {
@@ -21,6 +22,28 @@ class _TdSettingsPageState extends State<TdSettingsPage> {
   void initState() {
     super.initState();
     _load();
+  }
+
+  Future<void> _showTutorial() async {
+    // Reset tutorial completion to allow rewatching
+    await widget.prefs.setTutorialCompleted(false);
+
+    if (!mounted) return;
+
+    // Navigate back to entry menu (tutorial will show on next game start)
+    if (context.mounted) {
+      Navigator.of(context).popUntil((route) => route.isFirst); // Go to root
+
+      // Show snackbar with instructions
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Tutorial reset! Start a new game to watch.'),
+            duration: Duration(seconds: 3),
+          ),
+        );
+      }
+    }
   }
 
   Future<void> _load() async {
@@ -122,6 +145,24 @@ class _TdSettingsPageState extends State<TdSettingsPage> {
               ),
             ),
             const SizedBox(height: 24),
+            // Tutorial Section
+            _SectionHeader(title: 'Tutorial', icon: Icons.school_rounded),
+            const SizedBox(height: 12),
+            _SettingsCard(
+              child: Column(
+                children: [
+                  _SettingsTile(
+                    icon: Icons.play_arrow_rounded,
+                    iconColor: AppTheme.primary,
+                    title: 'Watch Tutorial',
+                    subtitle: 'Learn how to play the game',
+                    showArrow: true,
+                    onTap: () => _showTutorial(),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 24),
             // Info Section
             _SectionHeader(title: 'About', icon: Icons.info_outline_rounded),
             const SizedBox(height: 12),
@@ -196,6 +237,7 @@ class _SettingsTile extends StatelessWidget {
   final String subtitle;
   final Widget? trailing;
   final bool showArrow;
+  final VoidCallback? onTap;
 
   const _SettingsTile({
     required this.icon,
@@ -204,51 +246,56 @@ class _SettingsTile extends StatelessWidget {
     required this.subtitle,
     this.trailing,
     this.showArrow = true,
+    this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(16),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: iconColor.withOpacity(0.15),
-              borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(AppTheme.radiusLarge),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: iconColor.withOpacity(0.15),
+                borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+              ),
+              child: Icon(icon, size: 20, color: iconColor),
             ),
-            child: Icon(icon, size: 20, color: iconColor),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: GoogleFonts.nunito(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w600,
-                    color: AppTheme.textPrimary,
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: GoogleFonts.nunito(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                      color: AppTheme.textPrimary,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  subtitle,
-                  style: GoogleFonts.nunito(
-                    fontSize: 12,
-                    color: AppTheme.textSecondary,
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: GoogleFonts.nunito(
+                      fontSize: 12,
+                      color: AppTheme.textSecondary,
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-          if (trailing != null)
-            trailing!
-          else if (showArrow)
-            Icon(Icons.chevron_right_rounded, color: AppTheme.textMuted),
-        ],
+            if (trailing != null)
+              trailing!
+            else if (showArrow)
+              Icon(Icons.chevron_right_rounded, color: AppTheme.textMuted),
+          ],
+        ),
       ),
     );
   }
