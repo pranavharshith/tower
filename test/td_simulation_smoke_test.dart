@@ -2,20 +2,51 @@ import 'dart:math';
 
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:flutter_tower/data/td_random_maps.dart';
+import 'package:flutter_tower/data/td_maps.dart';
 import 'package:flutter_tower/services/sound_service.dart';
 import 'package:flutter_tower/game/td_simulation.dart';
 
+class MockSoundService implements SoundService {
+  @override
+  bool get isEnabled => false;
+  @override
+  void setEnabled(bool enabled) {}
+  @override
+  Future<void> initialize() async {}
+  @override
+  Future<void> play(
+    String soundName, {
+    double volume = 1.0,
+    double rate = 1.0,
+  }) async {}
+  @override
+  Future<void> playQuiet(String soundName, {double volume = 0.3}) async {}
+  @override
+  Future<void> stopAll() async {}
+  @override
+  void dispose() {}
+}
+
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
   test('Premade maps load and spawn first enemy batch', () {
     final tdMaps = TdMaps();
 
-    final premadeKeys = TdMaps.options.where((o) => tdMaps.isPremadeKey(o.key)).map((o) => o.key).toList();
+    final premadeKeys = TdMaps.options
+        .where((o) => tdMaps.isPremadeKey(o.key))
+        .map((o) => o.key)
+        .toList();
     expect(premadeKeys, isNotEmpty);
 
     for (final key in premadeKeys) {
       final map = tdMaps.loadPremade(key);
-      final sim = TdSim(baseMap: map, rng: Random(1), cash: 55, soundService: SoundService());
+      final sim = TdSim(
+        baseMap: map,
+        rng: Random(1),
+        cash: 55,
+        soundService: MockSoundService(),
+        mapKey: key,
+      );
       sim.startGame();
       expect(sim.enemies, isEmpty);
 
@@ -31,7 +62,13 @@ void main() {
   test('Placing a tower near spawn causes auto-attack damage', () {
     final tdMaps = TdMaps();
     final map = tdMaps.loadPremade('loops');
-    final sim = TdSim(baseMap: map, rng: Random(2), cash: 55, soundService: SoundService());
+    final sim = TdSim(
+      baseMap: map,
+      rng: Random(2),
+      cash: 55,
+      soundService: MockSoundService(),
+      mapKey: 'loops',
+    );
     sim.startGame();
 
     final gun = towerTypes['gun']!;
@@ -39,7 +76,8 @@ void main() {
     final sp = sim.spawnpoints.first;
     final spawnCenterX = sp.x + 0.5;
     final spawnCenterY = sp.y + 0.5;
-    final maxDist = gun.range + 1.0 + 0.001; // matches sim.enemiesInRange radius tiles.
+    final maxDist =
+        gun.range + 1.0 + 0.001; // matches sim.enemiesInRange radius tiles.
     final maxDist2 = maxDist * maxDist;
 
     bool placed = false;
@@ -59,7 +97,11 @@ void main() {
       if (placed) break;
     }
 
-    expect(placed, isTrue, reason: 'Could not find a valid placement near spawn');
+    expect(
+      placed,
+      isTrue,
+      reason: 'Could not find a valid placement near spawn',
+    );
 
     // Spawn and let the tower fire in the same first tick.
     sim.paused = false;
@@ -77,5 +119,36 @@ void main() {
     // Silence analyzer about the before variable being unused.
     expect(enemyHealthBefore.length, 0);
   });
-}
+  test('stepWithDelta advances enemy positions based on velocity', () {
+    final tdMaps = TdMaps();
+    final map = tdMaps.loadPremade('loops');
+    final sim = TdSim(
+      baseMap: map,
+      rng: Random(3),
+      cash: 50,
+      soundService: MockSoundService(),
+      mapKey: 'loops',
+    );
+    sim.startGame();
+    sim.paused = false;
 
+    // Spawn an enemy directly
+    sim.step(); // Trigger spawn
+    expect(sim.enemies, isNotEmpty);
+
+    final enemy = sim.enemies.first;
+    final initialX = enemy.posX;
+    final initialY = enemy.posY;
+
+    // Enemy should have some velocity assigned
+    expect(enemy.velX != 0 || enemy.velY != 0, isTrue);
+
+    // Step forward 0.1 seconds
+    final dt = 0.1;
+    sim.stepWithDelta(dt);
+
+    // Position should update based on the velocity (which is already dt-adjusted in stepWithDelta)
+    expect(enemy.posX, closeTo(initialX + enemy.velX, 0.001));
+    expect(enemy.posY, closeTo(initialY + enemy.velY, 0.001));
+  });
+}

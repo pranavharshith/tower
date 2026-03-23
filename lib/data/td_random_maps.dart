@@ -15,6 +15,11 @@ class TdRandomMapGenerator {
     required int cols,
     required int rows,
   }) {
+    // Special case: Dual-U map with custom layout
+    if (key == 'dualU') {
+      return _generateDualUMap(cols, rows);
+    }
+
     final is3 = key.endsWith('3');
     final numSpawns = is3 ? 3 : 2;
     final cash = is3 ? 65 : 55;
@@ -169,6 +174,26 @@ class TdRandomMapGenerator {
       }
     }
 
+    // Clear walls around spawnpoints to make them visible (especially for solid maps)
+    for (final sp in spawnpoints) {
+      // Clear the spawnpoint tile itself
+      grid[sp.x][sp.y] = 0;
+
+      // Clear adjacent orthogonal tiles (up, down, left, right)
+      final adjacentCols = [sp.x - 1, sp.x, sp.x + 1];
+      final adjacentRows = [sp.y - 1, sp.y, sp.y + 1];
+      for (final c in adjacentCols) {
+        for (final r in adjacentRows) {
+          if (outside(c, r)) continue;
+          final isOrth =
+              (c == sp.x && (r == sp.y - 1 || r == sp.y + 1)) ||
+              (r == sp.y && (c == sp.x - 1 || c == sp.x + 1));
+          if (!isOrth) continue;
+          grid[c][r] = 0; // Clear adjacent tiles
+        }
+      }
+    }
+
     // display/displayDir are not used by our MVP renderer yet; set placeholders.
     final display = List<List<dynamic>>.generate(
       cols,
@@ -215,4 +240,141 @@ class TdGeneratedMap {
   final TdMapData map;
   final int cash;
   const TdGeneratedMap({required this.map, required this.cash});
+}
+
+/// Generates the custom Dual-U map with 4 spawn points and U-shaped corridors
+TdGeneratedMap _generateDualUMap(int cols, int rows) {
+  // Create empty grid
+  final grid = List<List<int>>.generate(
+    cols,
+    (_) => List<int>.filled(rows, 0, growable: false),
+    growable: false,
+  );
+
+  // Create U-shaped corridors with walls
+  // Design: Two U-shaped paths that create interesting tower placement opportunities
+
+  // Fill with walls first, then carve out paths
+  for (int c = 0; c < cols; c++) {
+    for (int r = 0; r < rows; r++) {
+      grid[c][r] = 1; // Start with all walls
+    }
+  }
+
+  // Carve out two U-shaped corridors (3 tiles wide for spaciousness)
+  // Upper U-corridor
+  for (int c = 2; c < cols - 2; c++) {
+    for (int r = 2; r <= 4; r++) {
+      grid[c][r] = 0;
+    }
+  }
+  // Upper U left vertical
+  for (int r = 2; r < rows ~/ 2 + 1; r++) {
+    for (int c = 2; c <= 4; c++) {
+      grid[c][r] = 0;
+    }
+  }
+  // Upper U right vertical
+  for (int r = 2; r < rows ~/ 2 + 1; r++) {
+    for (int c = cols - 5; c < cols - 2; c++) {
+      grid[c][r] = 0;
+    }
+  }
+
+  // Lower U-corridor
+  for (int c = 2; c < cols - 2; c++) {
+    for (int r = rows - 5; r < rows - 2; r++) {
+      grid[c][r] = 0;
+    }
+  }
+  // Lower U left vertical
+  for (int r = rows ~/ 2 - 1; r < rows - 2; r++) {
+    for (int c = 2; c <= 4; c++) {
+      grid[c][r] = 0;
+    }
+  }
+  // Lower U right vertical
+  for (int r = rows ~/ 2 - 1; r < rows - 2; r++) {
+    for (int c = cols - 5; c < cols - 2; c++) {
+      grid[c][r] = 0;
+    }
+  }
+
+  // Center connecting corridor
+  for (int c = cols ~/ 2 - 1; c <= cols ~/ 2 + 1; c++) {
+    for (int r = 0; r < rows; r++) {
+      grid[c][r] = 0;
+    }
+  }
+
+  // Exit in the center right
+  final exit = TdCoord(cols - 1, rows ~/ 2);
+  grid[exit.x][exit.y] = 0;
+  // Clear path to exit
+  for (int c = cols - 5; c < cols; c++) {
+    grid[c][rows ~/ 2] = 0;
+  }
+
+  // 4 spawn points: 2 inner (near center), 2 outer (near edges)
+  final spawnpoints = <TdCoord>[
+    // Inner spawners (closer to center)
+    TdCoord(cols ~/ 4, rows ~/ 4), // Upper-left inner
+    TdCoord(cols ~/ 4, rows - rows ~/ 4), // Lower-left inner
+    // Outer spawners (near edges)
+    TdCoord(3, 3), // Upper-left outer
+    TdCoord(3, rows - 4), // Lower-left outer
+  ];
+
+  // Ensure spawn points and adjacent tiles are clear
+  for (final sp in spawnpoints) {
+    grid[sp.x][sp.y] = 0;
+    // Clear 3x3 area around each spawner
+    for (int dc = -1; dc <= 1; dc++) {
+      for (int dr = -1; dr <= 1; dr++) {
+        final nc = sp.x + dc;
+        final nr = sp.y + dr;
+        if (nc >= 0 && nc < cols && nr >= 0 && nr < rows) {
+          grid[nc][nr] = 0;
+        }
+      }
+    }
+  }
+
+  // Display and paths
+  final display = List<List<dynamic>>.generate(
+    cols,
+    (c) => List<dynamic>.generate(
+      rows,
+      (r) => grid[c][r] == 1 ? 'wall' : 'empty',
+      growable: false,
+    ),
+    growable: false,
+  );
+  final displayDir = List<List<int>>.generate(
+    cols,
+    (_) => List<int>.filled(rows, 0, growable: false),
+    growable: false,
+  );
+  final initialPaths = List<List<int>>.generate(
+    cols,
+    (_) => List<int>.filled(rows, 0, growable: false),
+    growable: false,
+  );
+
+  return TdGeneratedMap(
+    map: TdMapData(
+      cols: cols,
+      rows: rows,
+      grid: grid,
+      paths: initialPaths,
+      exit: exit,
+      spawnpoints: spawnpoints,
+      bg: const [0, 0, 0],
+      border: 255,
+      borderAlpha: 31,
+      display: display,
+      displayDir: displayDir,
+    ),
+    cash: 60, // Slightly more cash for this challenging map
+  );
 }

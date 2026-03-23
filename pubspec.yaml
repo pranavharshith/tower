@@ -39,6 +39,9 @@ dependencies:
   lzstring: ^2.0.0+2
   google_fonts: ^6.2.1
   audioplayers: ^6.4.0
+  flutter_riverpod: ^3.3.1
+  flutter_secure_storage: ^10.0.0
+  crypto: ^3.0.7
 
 dev_dependencies:
   flutter_test:

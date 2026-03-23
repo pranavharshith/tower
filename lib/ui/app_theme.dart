@@ -64,7 +64,7 @@ class AppTheme {
   // Shadows
   static List<BoxShadow> get softShadow => [
     BoxShadow(
-      color: Colors.black.withOpacity(0.06),
+      color: Colors.black.withValues(alpha: 0.06),
       blurRadius: 12,
       offset: const Offset(0, 4),
     ),
@@ -72,7 +72,7 @@ class AppTheme {
 
   static List<BoxShadow> get mediumShadow => [
     BoxShadow(
-      color: Colors.black.withOpacity(0.1),
+      color: Colors.black.withValues(alpha: 0.1),
       blurRadius: 20,
       offset: const Offset(0, 8),
     ),
@@ -142,7 +142,7 @@ class AppTheme {
       secondaryContainer: secondaryLight,
       surface: surface,
       onSurface: textPrimary,
-      surfaceVariant: surfaceVariant,
+      surfaceContainerHighest: surfaceVariant,
       error: coral,
       onError: Colors.black,
     ),

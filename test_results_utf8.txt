@@ -1,0 +1,270 @@
+﻿flutter : Package path_provider:linux 
+references path_provider_linux:linux as 
+the default plugin, but the package does 
+not exist, or is not a plugin package.
+At line:1 char:1
++ flutter test 2>&1 | Out-File -Encoding 
+utf8 test_results_utf8.txt
++ ~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified 
+   : (Package path_pr...plugin package.:S  
+  tring) [], RemoteException
+    + FullyQualifiedErrorId : NativeComman 
+   dError
+ 
+Ask the maintainers of path_provider to 
+either avoid referencing a default 
+implementation via `platforms: linux: 
+default_package: path_provider_linux` or 
+create a plugin named path_provider_linux.
+
+Package shared_preferences:linux 
+references shared_preferences_linux:linux 
+as the default plugin, but the package 
+does not exist, or is not a plugin package.
+Ask the maintainers of shared_preferences 
+to either avoid referencing a default 
+implementation via `platforms: linux: 
+default_package: shared_preferences_linux` 
+or create a plugin named 
+shared_preferences_linux.
+
+Package path_provider:windows references 
+path_provider_windows:windows as the 
+default plugin, but the package does not 
+exist, or is not a plugin package.
+Ask the maintainers of path_provider to 
+either avoid referencing a default 
+implementation via `platforms: windows: 
+default_package: path_provider_windows` or 
+create a plugin named 
+path_provider_windows.
+
+Package shared_preferences:windows 
+references 
+shared_preferences_windows:windows as the 
+default plugin, but the package does not 
+exist, or is not a plugin package.
+Ask the maintainers of shared_preferences 
+to either avoid referencing a default 
+implementation via `platforms: windows: 
+default_package: 
+shared_preferences_windows` or create a 
+plugin named shared_preferences_windows.
+
+Package shared_preferences:linux 
+references shared_preferences_linux:linux 
+as the default plugin, but the package 
+does not exist, or is not a plugin package.
+Ask the maintainers of shared_preferences 
+to either avoid referencing a default 
+implementation via `platforms: linux: 
+default_package: shared_preferences_linux` 
+or create a plugin named 
+shared_preferences_linux.
+
+Package path_provider:linux references 
+path_provider_linux:linux as the default 
+plugin, but the package does not exist, or 
+is not a plugin package.
+Ask the maintainers of path_provider to 
+either avoid referencing a default 
+implementation via `platforms: linux: 
+default_package: path_provider_linux` or 
+create a plugin named path_provider_linux.
+
+Package shared_preferences:windows 
+references 
+shared_preferences_windows:windows as the 
+default plugin, but the package does not 
+exist, or is not a plugin package.
+Ask the maintainers of shared_preferences 
+to either avoid referencing a default 
+implementation via `platforms: windows: 
+default_package: 
+shared_preferences_windows` or create a 
+plugin named shared_preferences_windows.
+
+Package path_provider:windows references 
+path_provider_windows:windows as the 
+default plugin, but the package does not 
+exist, or is not a plugin package.
+Ask the maintainers of path_provider to 
+either avoid referencing a default 
+implementation via `platforms: windows: 
+default_package: path_provider_windows` or 
+create a plugin named 
+path_provider_windows.
+
+00:00 +0: loading C:/Users/prana/OneDrive/Desktop/game/flutter-tower/test/hud_widget_test.dart
+Package shared_preferences:linux 
+references shared_preferences_linux:linux 
+as the default plugin, but the package 
+does not exist, or is not a plugin package.
+Ask the maintainers of shared_preferences 
+to either avoid referencing a default 
+implementation via `platforms: linux: 
+default_package: shared_preferences_linux` 
+or create a plugin named 
+shared_preferences_linux.
+
+Package path_provider:linux references 
+path_provider_linux:linux as the default 
+plugin, but the package does not exist, or 
+is not a plugin package.
+Ask the maintainers of path_provider to 
+either avoid referencing a default 
+implementation via `platforms: linux: 
+default_package: path_provider_linux` or 
+create a plugin named path_provider_linux.
+
+Package shared_preferences:windows 
+references 
+shared_preferences_windows:windows as the 
+default plugin, but the package does not 
+exist, or is not a plugin package.
+Ask the maintainers of shared_preferences 
+to either avoid referencing a default 
+implementation via `platforms: windows: 
+default_package: 
+shared_preferences_windows` or create a 
+plugin named shared_preferences_windows.
+
+Package path_provider:windows references 
+path_provider_windows:windows as the 
+default plugin, but the package does not 
+exist, or is not a plugin package.
+Ask the maintainers of path_provider to 
+either avoid referencing a default 
+implementation via `platforms: windows: 
+default_package: path_provider_windows` or 
+create a plugin named 
+path_provider_windows.
+
+Package shared_preferences:linux 
+references shared_preferences_linux:linux 
+as the default plugin, but the package 
+does not exist, or is not a plugin package.
+Ask the maintainers of shared_preferences 
+to either avoid referencing a default 
+implementation via `platforms: linux: 
+default_package: shared_preferences_linux` 
+or create a plugin named 
+shared_preferences_linux.
+
+Package path_provider:linux references 
+path_provider_linux:linux as the default 
+plugin, but the package does not exist, or 
+is not a plugin package.
+Ask the maintainers of path_provider to 
+either avoid referencing a default 
+implementation via `platforms: linux: 
+default_package: path_provider_linux` or 
+create a plugin named path_provider_linux.
+
+Package shared_preferences:windows 
+references 
+shared_preferences_windows:windows as the 
+default plugin, but the package does not 
+exist, or is not a plugin package.
+Ask the maintainers of shared_preferences 
+to either avoid referencing a default 
+implementation via `platforms: windows: 
+default_package: 
+shared_preferences_windows` or create a 
+plugin named shared_preferences_windows.
+
+Package path_provider:windows references 
+path_provider_windows:windows as the 
+default plugin, but the package does not 
+exist, or is not a plugin package.
+Ask the maintainers of path_provider to 
+either avoid referencing a default 
+implementation via `platforms: windows: 
+default_package: path_provider_windows` or 
+create a plugin named 
+path_provider_windows.
+
+00:00 +0: C:/Users/prana/OneDrive/Desktop/game/flutter-tower/test/hud_widget_test.dart: HudItem Widget Tests Displays text and values correctly when showLabel is true
+00:00 +0 -1: C:/Users/prana/OneDrive/Desktop/game/flutter-tower/test/hud_widget_test.dart: HudItem Widget Tests Displays text and values correctly when showLabel is true
+00:00 +0 -1: C:/Users/prana/OneDrive/Desktop/game/flutter-tower/test/td_simulation_smoke_test.dart: Premade maps load and spawn first enemy batch [E]
+  Binding has not yet been initialized.
+  The "instance" getter on the ServicesBinding binding mixin is only available once that binding has been initialized.
+  Typically, this is done by calling "WidgetsFlutterBinding.ensureInitialized()" or "runApp()" (the latter calls the former). Typically this call is done in the "void main()" method. The "ensureInitialized" method is idempotent; calling it multiple times is not harmful. After calling that method, the "instance" getter will return the binding.
+  In a test, one can call "TestWidgetsFlutterBinding.ensureInitialized()" as the first line in the test's "main()" method to initialize the binding.
+  If ServicesBinding is a custom binding mixin, there must also be a custom binding class, like WidgetsFlutterBinding, but that mixes in the selected binding, and that is the class that must be constructed before using the "instance" getter.
+  package:flutter/src/foundation/binding.dart 314:9          BindingBase.checkInstance.<fn>
+  package:flutter/src/foundation/binding.dart 401:6          BindingBase.checkInstance
+  package:flutter/src/services/binding.dart 73:54            ServicesBinding.instance
+  package:flutter/src/services/platform_channel.dart 179:25  _findBinaryMessenger
+  package:flutter/src/services/platform_channel.dart 678:62  EventChannel.binaryMessenger
+  package:flutter/src/services/platform_channel.dart 699:9   EventChannel.receiveBroadcastStream.<fn>
+  dart:async                                                 _ForwardingStream.listen
+  package:audioplayers/src/global_audio_scope.dart 25:11     new GlobalAudioScope
+  package:audioplayers/src/audioplayer.dart 21:25            AudioPlayer.global
+  package:audioplayers/src/audioplayer.dart                  AudioPlayer.global
+  package:audioplayers/src/audioplayer.dart 178:13           AudioPlayer._create
+  package:audioplayers/src/audioplayer.dart 170:5            new AudioPlayer
+  package:flutter_tower/services/sound_service.dart 11:36    new SoundService._internal
+  package:flutter_tower/services/sound_service.dart 7:54     SoundService._instance
+  package:flutter_tower/services/sound_service.dart          SoundService._instance
+  package:flutter_tower/services/sound_service.dart 8:29     new SoundService
+  test\td_simulation_smoke_test.dart 18:79                   main.<fn>
+  ===== asynchronous gap ===========================
+  dart:async                                                 _ForwardingStream.listen
+  package:audioplayers/src/global_audio_scope.dart 25:11     new GlobalAudioScope
+  package:audioplayers/src/audioplayer.dart 21:25            AudioPlayer.global
+  package:audioplayers/src/audioplayer.dart                  AudioPlayer.global
+  package:audioplayers/src/audioplayer.dart 178:13           AudioPlayer._create
+  package:audioplayers/src/audioplayer.dart 170:5            new AudioPlayer
+  package:flutter_tower/services/sound_service.dart 11:36    new SoundService._internal
+  package:flutter_tower/services/sound_service.dart 7:54     SoundService._instance
+  package:flutter_tower/services/sound_service.dart          SoundService._instance
+  package:flutter_tower/services/sound_service.dart 8:29     new SoundService
+  test\td_simulation_smoke_test.dart 18:79                   main.<fn>
+  
+  Binding has not yet been initialized.
+  The "instance" getter on the ServicesBinding binding mixin is only available once that binding has been initialized.
+  Typically, this is done by calling "WidgetsFlutterBinding.ensureInitialized()" or "runApp()" (the latter calls the former). Typically this call is done in the "void main()" method. The "ensureInitialized" method is idempotent; calling it multiple times is not harmful. After calling that method, the "instance" getter will return the binding.
+  In a test, one can call "TestWidgetsFlutterBinding.ensureInitialized()" as the first line in the test's "main()" method to initialize the binding.
+  If ServicesBinding is a custom binding mixin, there must also be a custom binding class, like WidgetsFlutterBinding, but that mixes in the selected binding, and that is the class that must be constructed before using the "instance" getter.
+  package:flutter/src/foundation/binding.dart 314:9                                    BindingBase.checkInstance.<fn>
+  package:flutter/src/foundation/binding.dart 401:6                                    BindingBase.checkInstance
+  package:flutter/src/services/binding.dart 73:54                                      ServicesBinding.instance
+  package:flutter/src/services/platform_channel.dart 179:25                            _findBinaryMessenger
+  package:flutter/src/services/platform_channel.dart 320:56                            MethodChannel.binaryMessenger
+  package:flutter/src/services/platform_channel.dart 360:17                            MethodChannel._invokeMethod
+  package:flutter/src/services/platform_channel.dart 540:12                            MethodChannel.invokeMethod
+  package:audioplayers_platform_interface/src/method_channel_extension.dart 8:12       StandardMethodChannel.call
+  package:audioplayers_platform_interface/src/global_audioplayers_platform.dart 22:33  MethodChannelGlobalAudioplayersPlatform.init
+  package:audioplayers/src/global_audio_scope.dart 39:25                               GlobalAudioScope.ensureInitialized
+  package:audioplayers/src/audioplayer.dart 178:20                                     AudioPlayer._create
+  package:audioplayers/src/audioplayer.dart 170:5                                      new AudioPlayer
+  package:flutter_tower/services/sound_service.dart 11:36                              new SoundService._internal
+  package:flutter_tower/services/sound_service.dart 7:54                               SoundService._instance
+  package:flutter_tower/services/sound_service.dart                                    SoundService._instance
+  package:flutter_tower/services/sound_service.dart 8:29                               new SoundService
+  test\td_simulation_smoke_test.dart 18:79                                             main.<fn>
+  ===== asynchronous gap ===========================
+  dart:async                                                                           _CustomZone.registerBinaryCallback
+  package:audioplayers/src/audioplayer.dart 178:7                                      AudioPlayer._create
+  package:audioplayers/src/audioplayer.dart 170:5                                      new AudioPlayer
+  package:flutter_tower/services/sound_service.dart 11:36                              new SoundService._internal
+  package:flutter_tower/services/sound_service.dart 7:54                               SoundService._instance
+  package:flutter_tower/services/sound_service.dart                                    SoundService._instance
+  package:flutter_tower/services/sound_service.dart 8:29                               new SoundService
+  test\td_simulation_smoke_test.dart 18:79                                             main.<fn>
+  
+00:00 +1 -1: C:/Users/prana/OneDrive/Desktop/game/flutter-tower/test/hud_widget_test.dart: HudItem Widget Tests Displays text and values correctly when showLabel is true
+00:00 +1 -2: C:/Users/prana/OneDrive/Desktop/game/flutter-tower/test/hud_widget_test.dart: HudItem Widget Tests Displays text and values correctly when showLabel is true
+00:00 +1 -2: C:/Users/prana/OneDrive/Desktop/game/flutter-tower/test/td_simulation_smoke_test.dart: stepWithDelta advances enemy positions based on velocity [E]
+  Expected: a numeric value within <0.001> of <2.5458333333333334>
+    Actual: <2.583333333333333>
+     Which:  differs by <0.037499999999999645>
+  
+  package:matcher                                     expect
+  package:flutter_test/src/widget_tester.dart 473:18  expect
+  test\td_simulation_smoke_test.dart 103:5            main.<fn>
+  
+00:00 +2 -2: C:/Users/prana/OneDrive/Desktop/game/flutter-tower/test/hud_widget_test.dart: HudItem Widget Tests Hides label text when showLabel is false
+00:00 +3 -2: Some tests failed.

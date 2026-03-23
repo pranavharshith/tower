@@ -1,4 +1,5 @@
 import 'dart:math';
+import 'dart:ui' as ui;
 import 'package:flame/game.dart';
 import 'package:flame/events.dart';
 import 'package:flutter/material.dart';
@@ -8,6 +9,112 @@ import '../data/td_random_maps.dart';
 import '../services/sound_service.dart';
 import 'td_simulation.dart';
 import 'particle_system.dart';
+
+part 'game_renderer.dart';
+
+class GamePaints {
+  static final Paint fill = Paint()..style = PaintingStyle.fill;
+  static final Paint stroke1 = Paint()
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = 1;
+  static final Paint stroke2 = Paint()
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = 2;
+  static final Paint stroke3 = Paint()
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = 3;
+
+  static final Paint grid = Paint()
+    ..color = const Color(0xFF00E640).withValues(alpha: 0.3)
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = 1;
+  static final Paint exit = Paint()
+    ..color = const Color(0xFFFF6B6B)
+    ..style = PaintingStyle.fill;
+  static final Paint spawn = Paint()
+    ..color = const Color(0xFFFF69B4)
+    ..style = PaintingStyle.fill;
+  static final Paint tempSpawn = Paint()
+    ..color = const Color(0xFF9D4EDD)
+    ..style = PaintingStyle.fill;
+  static final Paint bossSpawn = Paint()
+    ..color = const Color(0xFFFF0040)
+    ..style = PaintingStyle.fill;
+  static final Paint whiteStroke1 = Paint()
+    ..color = const Color(0xFFFFFFFF)
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = 1;
+  static final Paint whiteStroke2 = Paint()
+    ..color = const Color(0xFFFFFFFF)
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = 2;
+  static final Paint blackStroke1 = Paint()
+    ..color = const Color(0xFF000000)
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = 1;
+  static final Paint missile = Paint()
+    ..color = const Color(0xFFFFFF00)
+    ..style = PaintingStyle.fill;
+  static final Paint healthBg = Paint()
+    ..color = const Color(0xFFFFFFFF)
+    ..style = PaintingStyle.fill;
+  static final Paint healthFill = Paint()
+    ..color = const Color(0xFFE53935)
+    ..style = PaintingStyle.fill;
+  static final Paint tankBarrel = Paint()
+    ..color = const Color(0xFF95A5A6)
+    ..style = PaintingStyle.fill;
+  static final Paint tauntInner = Paint()
+    ..color = const Color(0xFFE87E04)
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = 2;
+  static final Paint bossHorn = Paint()
+    ..color = const Color(0xFFFF0000)
+    ..style = PaintingStyle.fill;
+  static final Paint whiteFill = Paint()
+    ..color = const Color(0xFFFFFFFF)
+    ..style = PaintingStyle.fill;
+  static final Paint bossBrow = Paint()
+    ..color = const Color(0xFF000000)
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = 2;
+  static final Paint bossPupil = Paint()
+    ..color = const Color(0xFFFF0000)
+    ..style = PaintingStyle.fill;
+  static final Paint bossMouth = Paint()
+    ..color = const Color(0xFF8B0000)
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = 2;
+  static final Paint bossCrown = Paint()
+    ..color = const Color(0xFFFFD700)
+    ..style = PaintingStyle.fill;
+  static final Paint fin = Paint()
+    ..color = const Color(0xFF43A047)
+    ..style = PaintingStyle.fill;
+  static final Paint goldStroke2 = Paint()
+    ..color = const Color(0xFFFFD700)
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = 2;
+  static final Paint goldStroke1Glow = Paint()
+    ..color = const Color(0x40FFD700)
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = 1;
+  static final Paint greyFill = Paint()
+    ..color = const Color(0xFF555555)
+    ..style = PaintingStyle.fill;
+
+  static final TextPainter bossText = TextPainter(
+    text: const TextSpan(
+      text: 'BOSS',
+      style: TextStyle(
+        color: Color(0xFFFF00FF),
+        fontSize: 16,
+        fontWeight: FontWeight.bold,
+      ),
+    ),
+    textDirection: TextDirection.ltr,
+  )..layout();
+}
 
 class TdGameSettings {
   final bool stretchMode;
@@ -59,6 +166,11 @@ class TdGame extends FlameGame with TapCallbacks {
   final String mapKey;
   final TdGameSettings settings;
   final void Function(int bestWave) onGameOver;
+  final void Function(TdHudData data) onHudUpdate;
+  final void Function()? onSelectionRevision;
+
+  ui.Picture? _bgCache;
+  Vector2? _lastSize;
 
   // Callback for when tower placement fails (for UI feedback)
   void Function(String reason)? onPlacementFailed;
@@ -66,6 +178,12 @@ class TdGame extends FlameGame with TapCallbacks {
   // UI <-> game selection state
   TdTowerType? placingType;
   TdTower? selectedTower;
+
+  // Double-tap detection for tower stats
+  TdTower? _lastTappedTower;
+  DateTime? _lastTapTime;
+  static const Duration _doubleTapWindow = Duration(milliseconds: 300);
+  bool _shouldShowStatsModal = false;
 
   // Pending tower placement (drag to place, then confirm)
   TdTowerType? _pendingTowerType;
@@ -122,11 +240,14 @@ class TdGame extends FlameGame with TapCallbacks {
   bool get gameStarted => _gameStarted;
   int get countdownSeconds => _countdownSeconds;
   int get placementTimeoutSeconds => _placementTimeout.ceil();
+  bool get shouldShowStatsModal => _shouldShowStatsModal;
 
   TdGame({
     required this.mapKey,
     required this.settings,
     required this.onGameOver,
+    required this.onHudUpdate,
+    this.onSelectionRevision,
   }) : super();
 
   TdSim get sim => _sim!;
@@ -211,23 +332,26 @@ class TdGame extends FlameGame with TapCallbacks {
       rng: _rng,
       cash: cash,
       soundService: _soundService,
+      mapKey: mapKey,
     );
     _sim!.startGame();
 
     _bestWave = 0;
     _gameOver = false;
-    hud.value = TdHudData(
-      wave: _sim!.wave,
-      health: _sim!.health,
-      maxHealth: _sim!.maxHealth,
-      cash: _sim!.cash,
-      paused: _sim!.paused,
-      healAmount: _sim!.healAmount,
-      healEffectTicks: _sim!.healEffectTicks,
-      isBossWave: _sim!.isBossWave,
-      towerCount: _sim!.towers.length,
-      maxTowers: TdSim.maxTowers,
-      maxTowersReached: _sim!.maxTowersReached,
+    onHudUpdate(
+      TdHudData(
+        wave: _sim!.wave,
+        health: _sim!.health,
+        maxHealth: _sim!.maxHealth,
+        cash: _sim!.cash,
+        paused: _sim!.paused,
+        healAmount: _sim!.healAmount,
+        healEffectTicks: _sim!.healEffectTicks,
+        isBossWave: _sim!.isBossWave,
+        towerCount: _sim!.towers.length,
+        maxTowers: TdSim.maxTowers,
+        maxTowersReached: _sim!.maxTowersReached,
+      ),
     );
   }
 
@@ -237,13 +361,18 @@ class TdGame extends FlameGame with TapCallbacks {
       // Selecting store items cancels tower selection.
       selectedTower = null;
     }
-    selectionRevision.value++;
+    onSelectionRevision?.call();
   }
 
   void selectTower(TdTower? tower) {
     selectedTower = tower;
+    _shouldShowStatsModal = false; // Reset modal flag
     placingType = null;
-    selectionRevision.value++;
+    onSelectionRevision?.call();
+  }
+
+  void clearStatsModalFlag() {
+    _shouldShowStatsModal = false;
   }
 
   void upgradeTower(TdTower tower) {
@@ -257,7 +386,7 @@ class TdGame extends FlameGame with TapCallbacks {
     }
 
     _sim!.upgradeTower(tower, upgradeCost);
-    selectionRevision.value++;
+    onSelectionRevision?.call();
   }
 
   void upgradeSelected() {
@@ -269,7 +398,7 @@ class TdGame extends FlameGame with TapCallbacks {
     if (selectedTower == null) return;
     sim.sellTower(selectedTower!);
     selectedTower = null;
-    selectionRevision.value++;
+    onSelectionRevision?.call();
   }
 
   void sellTowerDirect(TdTower tower) {
@@ -277,7 +406,7 @@ class TdGame extends FlameGame with TapCallbacks {
     if (selectedTower == tower) {
       selectedTower = null;
     }
-    selectionRevision.value++;
+    onSelectionRevision?.call();
   }
 
   // Set pending tower position (called when user taps on grid)
@@ -322,7 +451,7 @@ class TdGame extends FlameGame with TapCallbacks {
     _pendingTowerCol = col;
     _pendingTowerRow = row;
     _placementTimeout = _placementTimeoutMax; // Start 7 second timeout
-    selectionRevision.value++;
+    onSelectionRevision?.call();
     return true;
   }
 
@@ -334,8 +463,28 @@ class TdGame extends FlameGame with TapCallbacks {
       return;
     }
 
+    final col = _pendingTowerCol!;
+    final row = _pendingTowerRow!;
+    final towerType = _pendingTowerType!;
+
+    // Re-validate: Check if enemy moved onto this tile
+    for (final e in _sim!.enemies) {
+      if (e.gridCol == col && e.gridRow == row) {
+        onPlacementFailed?.call('Enemy moved onto this tile');
+        cancelPendingTower();
+        return;
+      }
+    }
+
+    // Re-validate: Check if path is still valid
+    if (!_sim!.placeable(col, row)) {
+      onPlacementFailed?.call('Would block enemy path');
+      cancelPendingTower();
+      return;
+    }
+
     // Check if player has enough cash
-    final towerCost = _pendingTowerType!.cost;
+    final towerCost = towerType.cost;
     if (_sim!.cash < towerCost) {
       // Not enough cash - cancel placement
       onPlacementFailed?.call('Not enough cash');
@@ -345,7 +494,7 @@ class TdGame extends FlameGame with TapCallbacks {
 
     // Deduct cash and place tower
     _sim!.cash -= towerCost;
-    _sim!.placeTower(_pendingTowerType!, _pendingTowerCol!, _pendingTowerRow!);
+    _sim!.placeTower(towerType, col, row);
 
     // Clear pending state
     _pendingTowerType = null;
@@ -353,7 +502,7 @@ class TdGame extends FlameGame with TapCallbacks {
     _pendingTowerRow = null;
     _placementTimeout = 0;
     placingType = null;
-    selectionRevision.value++;
+    onSelectionRevision?.call();
   }
 
   // Cancel tower placement
@@ -363,7 +512,7 @@ class TdGame extends FlameGame with TapCallbacks {
     _pendingTowerRow = null;
     _placementTimeout = 0;
     placingType = null;
-    selectionRevision.value++;
+    onSelectionRevision?.call();
   }
 
   // Start placing a tower type
@@ -374,11 +523,14 @@ class TdGame extends FlameGame with TapCallbacks {
     _placementTimeout = 0;
     placingType = type;
     selectedTower = null;
-    selectionRevision.value++;
+    onSelectionRevision?.call();
   }
 
   @override
   void update(double dt) {
+    // Cap delta time to 100 ms to prevent physics tunneling after lag spikes
+    // (e.g. GC pause, app resume from background).
+    dt = dt.clamp(0.0, 0.1);
     super.update(dt);
     if (_gameOver) return;
 
@@ -414,25 +566,27 @@ class TdGame extends FlameGame with TapCallbacks {
         }
       }
       // Update HUD during countdown
-      hud.value = TdHudData(
-        wave: sim.wave,
-        health: sim.health,
-        maxHealth: sim.maxHealth,
-        cash: sim.cash,
-        paused: sim.paused,
-        healAmount: sim.healAmount,
-        healEffectTicks: sim.healEffectTicks,
-        isBossWave: sim.isBossWave,
-        gameStarted: _gameStarted,
-        countdownSeconds: _countdownSeconds,
-        isPlacingTower: isPlacingTower,
-        pendingTowerCol: _pendingTowerCol,
-        pendingTowerRow: _pendingTowerRow,
-        pendingTowerType: _pendingTowerType,
-        placementTimeoutSeconds: _placementTimeout.ceil(),
-        towerCount: sim.towers.length,
-        maxTowers: TdSim.maxTowers,
-        maxTowersReached: sim.maxTowersReached,
+      onHudUpdate(
+        TdHudData(
+          wave: sim.wave,
+          health: sim.health,
+          maxHealth: sim.maxHealth,
+          cash: sim.cash,
+          paused: sim.paused,
+          healAmount: sim.healAmount,
+          healEffectTicks: sim.healEffectTicks,
+          isBossWave: sim.isBossWave,
+          gameStarted: _gameStarted,
+          countdownSeconds: _countdownSeconds,
+          isPlacingTower: isPlacingTower,
+          pendingTowerCol: _pendingTowerCol,
+          pendingTowerRow: _pendingTowerRow,
+          pendingTowerType: _pendingTowerType,
+          placementTimeoutSeconds: _placementTimeout.ceil(),
+          towerCount: sim.towers.length,
+          maxTowers: TdSim.maxTowers,
+          maxTowersReached: sim.maxTowersReached,
+        ),
       );
       return;
     }
@@ -459,25 +613,27 @@ class TdGame extends FlameGame with TapCallbacks {
       }
     }
 
-    hud.value = TdHudData(
-      wave: sim.wave,
-      health: sim.health,
-      maxHealth: sim.maxHealth,
-      cash: sim.cash,
-      paused: sim.paused,
-      healAmount: sim.healAmount,
-      healEffectTicks: sim.healEffectTicks,
-      isBossWave: sim.isBossWave,
-      gameStarted: _gameStarted,
-      countdownSeconds: _countdownSeconds,
-      isPlacingTower: isPlacingTower,
-      pendingTowerCol: _pendingTowerCol,
-      pendingTowerRow: _pendingTowerRow,
-      pendingTowerType: _pendingTowerType,
-      placementTimeoutSeconds: _placementTimeout.ceil(),
-      towerCount: sim.towers.length,
-      maxTowers: TdSim.maxTowers,
-      maxTowersReached: sim.maxTowersReached,
+    onHudUpdate(
+      TdHudData(
+        wave: sim.wave,
+        health: sim.health,
+        maxHealth: sim.maxHealth,
+        cash: sim.cash,
+        paused: sim.paused,
+        healAmount: sim.healAmount,
+        healEffectTicks: sim.healEffectTicks,
+        isBossWave: sim.isBossWave,
+        gameStarted: _gameStarted,
+        countdownSeconds: _countdownSeconds,
+        isPlacingTower: isPlacingTower,
+        pendingTowerCol: _pendingTowerCol,
+        pendingTowerRow: _pendingTowerRow,
+        pendingTowerType: _pendingTowerType,
+        placementTimeoutSeconds: _placementTimeout.ceil(),
+        towerCount: sim.towers.length,
+        maxTowers: TdSim.maxTowers,
+        maxTowersReached: sim.maxTowersReached,
+      ),
     );
   }
 
@@ -598,52 +754,67 @@ class TdGame extends FlameGame with TapCallbacks {
     }
     final tileSizeForRadius = min(tileW, tileH);
 
-    // Background based on map bg.
-    final bg = Color.fromARGB(255, map.bg[0], map.bg[1], map.bg[2]);
-    canvas.drawRect(Rect.fromLTWH(0, 0, size.x, size.y), Paint()..color = bg);
+    if (_bgCache == null || _lastSize != size) {
+      _lastSize = size.clone();
+      final recorder = ui.PictureRecorder();
+      final bgCanvas = Canvas(recorder);
 
-    // Tile grid fill using `display` keys.
-    final tilePaint = Paint()..style = PaintingStyle.fill;
-    for (int c = 0; c < cols; c++) {
-      for (int r = 0; r < rows; r++) {
-        final d = map.display[c][r];
-        final gridValue = map.grid[c][r];
-        tilePaint.color = tileColor(d, gridValue);
-        final rect = Rect.fromLTWH(
-          originX + c * tileW,
-          originY + r * tileH,
-          tileW,
-          tileH,
-        );
-        canvas.drawRect(rect, tilePaint);
+      // Background based on map bg.
+      final bg = Color.fromARGB(255, map.bg[0], map.bg[1], map.bg[2]);
+      bgCanvas.drawRect(
+        Rect.fromLTWH(0, 0, size.x, size.y),
+        GamePaints.fill..color = bg,
+      );
+
+      // Tile grid fill using `display` keys.
+      final tilePaint = GamePaints.fill;
+      for (int c = 0; c < cols; c++) {
+        for (int r = 0; r < rows; r++) {
+          final d = map.display[c][r];
+          final gridValue = map.grid[c][r];
+          tilePaint.color = tileColor(d, gridValue);
+          final rect = Rect.fromLTWH(
+            originX + c * tileW,
+            originY + r * tileH,
+            tileW,
+            tileH,
+          );
+          bgCanvas.drawRect(rect, tilePaint);
+        }
       }
+
+      // Grid lines (every tile) - green on dark background like towerdefense.
+      final gridPaint = Paint()
+        ..color = const Color(0xFF00E640)
+            .withValues(alpha: 0.3) // Green grid lines
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1;
+      for (int c = 0; c <= cols; c++) {
+        final x = originX + c * tileW;
+        bgCanvas.drawLine(
+          Offset(x, originY),
+          Offset(x, originY + rows * tileH),
+          gridPaint,
+        );
+      }
+      for (int r = 0; r <= rows; r++) {
+        final y = originY + r * tileH;
+        bgCanvas.drawLine(
+          Offset(originX, y),
+          Offset(originX + cols * tileW, y),
+          gridPaint,
+        );
+      }
+
+      _bgCache = recorder.endRecording();
     }
 
-    // Grid lines (every tile) - green on dark background like towerdefense.
-    final gridPaint = Paint()
-      ..color = const Color(0xFF00E640)
-          .withOpacity(0.3) // Green grid lines
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1;
-    for (int c = 0; c <= cols; c++) {
-      final x = originX + c * tileW;
-      canvas.drawLine(
-        Offset(x, originY),
-        Offset(x, originY + rows * tileH),
-        gridPaint,
-      );
-    }
-    for (int r = 0; r <= rows; r++) {
-      final y = originY + r * tileH;
-      canvas.drawLine(
-        Offset(originX, y),
-        Offset(originX + cols * tileW, y),
-        gridPaint,
-      );
+    if (_bgCache != null) {
+      canvas.drawPicture(_bgCache!);
     }
 
     // Exit - soft coral color
-    final exitPaint = Paint()..color = const Color(0xFFFF8B7B); // Soft coral
+    final exitPaint = GamePaints.exit; // Soft coral
     canvas.drawRect(
       Rect.fromLTWH(
         originX + map.exit.x * tileW,
@@ -655,7 +826,7 @@ class TdGame extends FlameGame with TapCallbacks {
     );
 
     // Pink spawn towers (current positions) - pink color
-    final spawnPaint = Paint()..color = const Color(0xFFFF69B4); // Hot pink
+    final spawnPaint = GamePaints.spawn; // Hot pink
     for (final st in _sim!.spawnTowers) {
       canvas.drawRect(
         Rect.fromLTWH(
@@ -678,7 +849,7 @@ class TdGame extends FlameGame with TapCallbacks {
           tileW,
           tileH,
         ),
-        Paint()..color = const Color(0xFF9D4EDD), // Soft purple
+        GamePaints.tempSpawn, // Soft purple
       );
     }
 
@@ -696,8 +867,13 @@ class TdGame extends FlameGame with TapCallbacks {
       // Scale down to fit within grid cell (towerdefense uses ~0.3-0.4 visual radius)
       final r = min(tileW, tileH) * 0.35;
 
-      // Draw range circle if selected or placing
-      if (t == selectedTower || placingType?.key == t.towerType.key) {
+      // Draw range circle based on selection type
+      // Priority: selectedTower (single tower) > placingType (all of same type)
+      final shouldShowRange =
+          (selectedTower != null && t == selectedTower) ||
+          (selectedTower == null && placingType?.key == t.towerType.key);
+
+      if (shouldShowRange) {
         // Range in pixels = range in tiles * tile size
         final rangeRadius = t.range * tileSizeForRadius;
         canvas.drawCircle(
@@ -744,7 +920,7 @@ class TdGame extends FlameGame with TapCallbacks {
       // Draw square spawn point (same shape as player's green base)
       canvas.drawRect(
         Rect.fromLTWH(left, top, tileW, tileH),
-        Paint()..color = color,
+        GamePaints.fill..color = color,
       );
 
       // Draw outline
@@ -789,7 +965,7 @@ class TdGame extends FlameGame with TapCallbacks {
       canvas.drawCircle(
         Offset(cx, cy),
         max(2, tileSizeForRadius * 0.08),
-        Paint()..color = const Color(0xFFFF8B7B), // Soft coral
+        GamePaints.missile, // Soft coral
       );
     }
 
@@ -864,560 +1040,6 @@ class TdGame extends FlameGame with TapCallbacks {
     }
   }
 
-  void _drawEnemy(
-    Canvas canvas,
-    TdEnemy e,
-    double cx,
-    double cy,
-    double r,
-    Paint paint,
-  ) {
-    // Draw different shapes based on enemy type (matching towerdefense)
-    switch (e.type.key) {
-      case 'fast':
-      case 'strongFast':
-      case 'faster':
-        // Arrow shape - rotated based on velocity
-        final angle = atan2(e.velY, e.velX);
-        _drawArrowEnemy(canvas, cx, cy, r, angle, paint);
-        break;
-      case 'tank':
-        // Tank shape - rectangle with barrel
-        final angle = atan2(e.velY, e.velX);
-        _drawTankEnemy(canvas, cx, cy, r, angle, paint);
-        break;
-      case 'taunt':
-        // Square with inner squares
-        _drawTauntEnemy(canvas, cx, cy, r, paint);
-        break;
-      case 'boss':
-        // Boss - large spiky shape with crown
-        _drawBossEnemy(canvas, cx, cy, r, paint);
-        break;
-      default:
-        // Default circle for weak, strong, medic, stronger, spawner
-        canvas.drawCircle(Offset(cx, cy), max(2, r), paint);
-        break;
-    }
-  }
-
-  void _drawArrowEnemy(
-    Canvas canvas,
-    double cx,
-    double cy,
-    double r,
-    double angle,
-    Paint paint,
-  ) {
-    canvas.save();
-    canvas.translate(cx, cy);
-    canvas.rotate(angle);
-
-    final back = -0.55 * r;
-    final front = back + r * 2;
-    final side = r;
-
-    final path = Path()
-      ..moveTo(back, -side)
-      ..lineTo(0, 0)
-      ..lineTo(back, side)
-      ..lineTo(front, 0)
-      ..close();
-
-    canvas.drawPath(path, paint);
-    canvas.restore();
-  }
-
-  void _drawTankEnemy(
-    Canvas canvas,
-    double cx,
-    double cy,
-    double r,
-    double angle,
-    Paint paint,
-  ) {
-    canvas.save();
-    canvas.translate(cx, cy);
-    canvas.rotate(angle);
-
-    // Tank body
-    final front = r;
-    final side = r * 0.7;
-    final rect = Rect.fromLTRB(-front, -side, front, side);
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(rect, Radius.circular(r * 0.2)),
-      paint,
-    );
-
-    // Tank barrel
-    final barrelPaint = Paint()
-      ..color = const Color(0xFF95A5A6)
-      ..style = PaintingStyle.fill;
-    final barrelWidth = r * 0.15;
-    final barrelLength = r * 0.7;
-    canvas.drawRect(
-      Rect.fromLTRB(0, -barrelWidth, barrelLength, barrelWidth),
-      barrelPaint,
-    );
-
-    // Center circle
-    canvas.drawCircle(Offset.zero, r * 0.2, barrelPaint);
-
-    canvas.restore();
-  }
-
-  void _drawTauntEnemy(
-    Canvas canvas,
-    double cx,
-    double cy,
-    double r,
-    Paint paint,
-  ) {
-    // Outer square
-    final rect = Rect.fromCenter(
-      center: Offset(cx, cy),
-      width: r * 2,
-      height: r * 2,
-    );
-    canvas.drawRect(rect, paint);
-
-    // Inner squares (orange)
-    final innerPaint = Paint()
-      ..color = const Color(0xFFE87E04)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2;
-    canvas.drawRect(
-      Rect.fromCenter(center: Offset(cx, cy), width: r * 1.2, height: r * 1.2),
-      innerPaint,
-    );
-    canvas.drawRect(
-      Rect.fromCenter(center: Offset(cx, cy), width: r * 0.8, height: r * 0.8),
-      innerPaint,
-    );
-  }
-
-  void _drawBossEnemy(
-    Canvas canvas,
-    double cx,
-    double cy,
-    double r,
-    Paint paint,
-  ) {
-    canvas.save();
-    canvas.translate(cx, cy);
-
-    // Draw devil horns (curved triangles on top)
-    final hornPaint = Paint()
-      ..color =
-          const Color(0xFFFF0000) // Red horns
-      ..style = PaintingStyle.fill;
-
-    // Left horn (curved)
-    final leftHornPath = Path()
-      ..moveTo(-r * 0.4, -r * 0.6)
-      ..quadraticBezierTo(
-        -r * 0.7,
-        -r * 1.3, // Control point (curves outward)
-        -r * 0.3,
-        -r * 1.1, // Tip point
-      )
-      ..quadraticBezierTo(
-        -r * 0.5,
-        -r * 0.8, // Control point (curves inward)
-        -r * 0.4,
-        -r * 0.6, // Back to base
-      )
-      ..close();
-    canvas.drawPath(leftHornPath, hornPaint);
-
-    // Right horn (curved)
-    final rightHornPath = Path()
-      ..moveTo(r * 0.4, -r * 0.6)
-      ..quadraticBezierTo(
-        r * 0.7,
-        -r * 1.3, // Control point (curves outward)
-        r * 0.3,
-        -r * 1.1, // Tip point
-      )
-      ..quadraticBezierTo(
-        r * 0.5,
-        -r * 0.8, // Control point (curves inward)
-        r * 0.4,
-        -r * 0.6, // Back to base
-      )
-      ..close();
-    canvas.drawPath(rightHornPath, hornPaint);
-
-    // Draw main body as circle (devil face)
-    canvas.drawCircle(Offset.zero, r, paint);
-
-    // Draw angry eyes with pupils
-    final eyeWhitePaint = Paint()
-      ..color = const Color(0xFFFFFFFF)
-      ..style = PaintingStyle.fill;
-
-    // Eye whites
-    canvas.drawCircle(Offset(-r * 0.35, -r * 0.1), r * 0.2, eyeWhitePaint);
-    canvas.drawCircle(Offset(r * 0.35, -r * 0.1), r * 0.2, eyeWhitePaint);
-
-    // Angry eyebrows
-    final browPaint = Paint()
-      ..color = const Color(0xFF000000)
-      ..strokeWidth = 2
-      ..style = PaintingStyle.stroke;
-
-    final leftBrowPath = Path()
-      ..moveTo(-r * 0.5, -r * 0.25)
-      ..lineTo(-r * 0.2, -r * 0.15);
-    canvas.drawPath(leftBrowPath, browPaint);
-
-    final rightBrowPath = Path()
-      ..moveTo(r * 0.5, -r * 0.25)
-      ..lineTo(r * 0.2, -r * 0.15);
-    canvas.drawPath(rightBrowPath, browPaint);
-
-    // Red glowing pupils
-    final pupilPaint = Paint()
-      ..color = const Color(0xFFFF0000)
-      ..style = PaintingStyle.fill;
-    canvas.drawCircle(Offset(-r * 0.35, -r * 0.1), r * 0.1, pupilPaint);
-    canvas.drawCircle(Offset(r * 0.35, -r * 0.1), r * 0.1, pupilPaint);
-
-    // Draw sinister smile
-    final mouthPaint = Paint()
-      ..color =
-          const Color(0xFF8B0000) // Dark red
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2;
-
-    final mouthPath = Path()
-      ..moveTo(-r * 0.4, r * 0.3)
-      ..quadraticBezierTo(
-        0,
-        r * 0.6, // Control point (creates smile curve)
-        r * 0.4,
-        r * 0.3,
-      );
-    canvas.drawPath(mouthPath, mouthPaint);
-
-    // Draw crown on top (gold)
-    final crownPaint = Paint()
-      ..color =
-          const Color(0xFFFFD700) // Gold crown
-      ..style = PaintingStyle.fill;
-
-    final crownPath = Path()
-      ..moveTo(-r * 0.5, -r * 0.8)
-      ..lineTo(-r * 0.25, -r * 1.2)
-      ..lineTo(0, -r * 0.9)
-      ..lineTo(r * 0.25, -r * 1.2)
-      ..lineTo(r * 0.5, -r * 0.8)
-      ..close();
-    canvas.drawPath(crownPath, crownPaint);
-
-    canvas.restore();
-  }
-
-  void _drawHealthBar(
-    Canvas canvas,
-    TdEnemy e,
-    double cx,
-    double cy,
-    double r,
-    double tileSize,
-  ) {
-    if (e.health >= e.maxHealth) return;
-
-    final percent = e.health / e.maxHealth;
-    final barWidth = r * 2.8;
-    final barHeight = max(3, r * 0.3);
-    final top = cy - r - barHeight - 2;
-
-    // Background (white border)
-    final bgRect = Rect.fromCenter(
-      center: Offset(cx, top),
-      width: barWidth + 2,
-      height: barHeight + 2,
-    );
-    canvas.drawRect(bgRect, Paint()..color = const Color(0xFFFFFFFF));
-
-    // Health fill (red)
-    final fillWidth = barWidth * percent;
-    final fillRect = Rect.fromCenter(
-      center: Offset(cx - (barWidth - fillWidth) / 2.0, top),
-      width: fillWidth.toDouble(),
-      height: barHeight.toDouble(),
-    );
-    canvas.drawRect(fillRect, Paint()..color = const Color(0xFFCF000F));
-  }
-
-  void _drawBossHealthBars(
-    Canvas canvas,
-    TdEnemy e,
-    double cx,
-    double cy,
-    double r,
-    double tileSize,
-  ) {
-    // Boss has 3 HP bars stacked vertically
-    // Each bar represents 1/3 of total health
-    final barWidth = r * 3.5;
-    final barHeight = max(4, r * 0.35);
-    final totalHealth = e.maxHealth;
-    final healthPerBar = totalHealth / 3;
-
-    for (int i = 0; i < 3; i++) {
-      final barTop = cy - r - barHeight * (3 - i) - 2 * (3 - i);
-      final barStart = healthPerBar * i;
-      final barEnd = healthPerBar * (i + 1);
-
-      // Determine bar color based on position (green -> yellow -> red)
-      final barColor = i == 0
-          ? const Color(0xFF00FF00) // Green for first bar
-          : i == 1
-          ? const Color(0xFFFFFF00) // Yellow for second
-          : const Color(0xFFFF0000); // Red for last
-
-      // Background (white border)
-      canvas.drawRect(
-        Rect.fromCenter(
-          center: Offset(cx, barTop),
-          width: barWidth + 2,
-          height: barHeight + 2,
-        ),
-        Paint()..color = const Color(0xFFFFFFFF),
-      );
-
-      // Calculate fill
-      double fillPercent = 0;
-      if (e.health > barEnd) {
-        fillPercent = 1.0;
-      } else if (e.health > barStart) {
-        fillPercent = (e.health - barStart) / healthPerBar;
-      }
-
-      if (fillPercent > 0) {
-        final fillWidth = (barWidth * fillPercent).toDouble();
-        canvas.drawRect(
-          Rect.fromCenter(
-            center: Offset(cx - (barWidth - fillWidth) / 2, barTop),
-            width: fillWidth,
-            height: barHeight.toDouble(),
-          ),
-          Paint()..color = barColor,
-        );
-      }
-    }
-
-    // Draw "BOSS" text above bars
-    final textPainter = TextPainter(
-      text: TextSpan(
-        text: 'BOSS',
-        style: TextStyle(
-          color: const Color(0xFFFF00FF),
-          fontSize: r * 0.8,
-          fontWeight: FontWeight.bold,
-        ),
-      ),
-      textDirection: TextDirection.ltr,
-    );
-    textPainter.layout();
-    textPainter.paint(
-      canvas,
-      Offset(cx - textPainter.width / 2, cy - r - barHeight * 4 - 10),
-    );
-  }
-
-  void _drawTower(
-    Canvas canvas,
-    TdTower t,
-    double cx,
-    double cy,
-    double r,
-    double tileSize,
-  ) {
-    // Calculate angle toward target if any enemy in range
-    double angle = 0;
-    final enemiesInRange = _sim!.enemiesInRange(t.posX, t.posY, t.range);
-    if (enemiesInRange.isNotEmpty) {
-      // Find target (first or strongest for sniper)
-      TdEnemy? target;
-      if (t.towerType.isSniper) {
-        target = _sim!.getStrongestTarget(enemiesInRange);
-      } else {
-        target = _sim!.getFirstTarget(enemiesInRange);
-      }
-      if (target != null) {
-        angle = atan2(target.posY - t.posY, target.posX - t.posX);
-      }
-    }
-
-    canvas.save();
-    canvas.translate(cx, cy);
-
-    // Draw base (if not sniper/tesla which have no base)
-    if (!t.towerType.isSniper && !t.towerType.isTesla) {
-      final basePaint = Paint()
-        ..color = Color.fromARGB(255, t.color[0], t.color[1], t.color[2])
-        ..style = PaintingStyle.fill;
-      canvas.drawCircle(Offset.zero, r, basePaint);
-
-      // Border
-      canvas.drawCircle(
-        Offset.zero,
-        r,
-        Paint()
-          ..color = const Color(0xFF000000)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 1,
-      );
-    }
-
-    // Visual indicator for upgraded towers - golden ring
-    if (t.upgraded) {
-      canvas.drawCircle(
-        Offset.zero,
-        r * 1.1,
-        Paint()
-          ..color =
-              const Color(0xFFFFD700) // Gold color
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 2,
-      );
-      // Add a subtle glow effect
-      canvas.drawCircle(
-        Offset.zero,
-        r * 1.15,
-        Paint()
-          ..color =
-              const Color(0x40FFD700) // Semi-transparent gold
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 1,
-      );
-    }
-
-    // Draw barrel based on tower type
-    canvas.rotate(angle);
-    _drawTowerBarrel(canvas, t, r, tileSize);
-
-    canvas.restore();
-  }
-
-  void _drawTowerBarrel(Canvas canvas, TdTower t, double r, double tileSize) {
-    final barrelPaint = Paint()
-      ..color = Color.fromARGB(
-        255,
-        t.secondary[0],
-        t.secondary[1],
-        t.secondary[2],
-      )
-      ..style = PaintingStyle.fill;
-    final borderPaint = Paint()
-      ..color = const Color(0xFF000000)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1;
-
-    switch (t.towerType.key) {
-      case 'gun':
-        // Simple rectangle barrel
-        final length = r * 0.8;
-        final width = r * 0.3;
-        final rect = Rect.fromLTRB(0, -width / 2, length, width / 2);
-        canvas.drawRect(rect, barrelPaint);
-        canvas.drawRect(rect, borderPaint);
-        break;
-      case 'sniper':
-        // Triangle shape
-        final height = r * sqrt(3) / 2;
-        final back = -height / 3;
-        final front = height * 2 / 3;
-        final side = r / 2;
-        final path = Path()
-          ..moveTo(back, -side)
-          ..lineTo(back, side)
-          ..lineTo(front, 0)
-          ..close();
-        canvas.drawPath(
-          path,
-          Paint()
-            ..color = Color.fromARGB(255, t.color[0], t.color[1], t.color[2]),
-        );
-        canvas.drawPath(path, borderPaint);
-        break;
-      case 'rocket':
-        // Double barrel with fins
-        final width = r * 0.15;
-        final length = r * 0.6;
-        canvas.drawRect(
-          Rect.fromLTRB(0, -width * 2, length, -width),
-          barrelPaint,
-        );
-        canvas.drawRect(
-          Rect.fromLTRB(0, width, length, width * 2),
-          barrelPaint,
-        );
-        // Fins
-        final finPaint = Paint()..color = const Color(0xFFCF000F);
-        canvas.drawRect(
-          Rect.fromLTRB(length, -width * 3, length + width, width * 3),
-          finPaint,
-        );
-        break;
-      case 'tesla':
-        // Hexagon base with circle
-        _drawPolygon(
-          canvas,
-          6,
-          r * 0.5,
-          Paint()
-            ..color = Color.fromARGB(
-              255,
-              t.secondary[0],
-              t.secondary[1],
-              t.secondary[2],
-            ),
-        );
-        canvas.drawCircle(
-          Offset.zero,
-          r * 0.55,
-          Paint()
-            ..color = Color.fromARGB(255, t.color[0], t.color[1], t.color[2]),
-        );
-        break;
-      default:
-        // Default barrel
-        final length = r * 0.7;
-        final width = r * 0.25;
-        final rect = Rect.fromLTRB(0, -width / 2, length, width / 2);
-        canvas.drawRect(rect, barrelPaint);
-        canvas.drawRect(rect, borderPaint);
-        break;
-    }
-  }
-
-  void _drawPolygon(Canvas canvas, int sides, double radius, Paint paint) {
-    final path = Path();
-    for (int i = 0; i < sides; i++) {
-      final angle = 2 * pi * i / sides - pi / 2;
-      final x = radius * cos(angle);
-      final y = radius * sin(angle);
-      if (i == 0) {
-        path.moveTo(x, y);
-      } else {
-        path.lineTo(x, y);
-      }
-    }
-    path.close();
-    canvas.drawPath(path, paint);
-    canvas.drawPath(
-      path,
-      Paint()
-        ..color = const Color(0xFF000000)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1,
-    );
-  }
-
   @override
   void onTapDown(TapDownEvent event) {
     if (_sim == null || _gameOver) return;
@@ -1448,13 +1070,37 @@ class TdGame extends FlameGame with TapCallbacks {
 
     final existing = _sim!.getTowerAt(col, row);
     if (existing != null) {
-      selectTower(existing);
+      // Double-tap detection
+      final now = DateTime.now();
+      final isDoubleTap =
+          _lastTappedTower == existing &&
+          _lastTapTime != null &&
+          now.difference(_lastTapTime!) < _doubleTapWindow;
+
+      if (isDoubleTap) {
+        // Double tap - show stats modal
+        selectTower(existing);
+        _shouldShowStatsModal = true;
+        _lastTappedTower = null;
+        _lastTapTime = null;
+      } else {
+        // Single tap - just show range (select tower)
+        selectTower(existing);
+        _lastTappedTower = existing;
+        _lastTapTime = now;
+      }
       return;
     }
 
     // If we have a pending tower type, set the position
     if (_pendingTowerType != null) {
       setPendingTowerPosition(col, row);
+      return;
+    }
+
+    // Tapping empty space - deselect manually selected tower (but keep tower store selection)
+    if (selectedTower != null) {
+      selectTower(null);
     }
   }
 }

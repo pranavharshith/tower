@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../services/td_prefs.dart';
-import 'tutorial_overlay.dart';
 import 'app_theme.dart';
 
 class TdSettingsPage extends StatefulWidget {
@@ -99,7 +98,7 @@ class _TdSettingsPageState extends State<TdSettingsPage> {
                         setState(() => _stretchMode = v);
                         await widget.prefs.setStretchMode(v);
                       },
-                      activeColor: AppTheme.primary,
+                      activeThumbColor: AppTheme.primary,
                     ),
                   ),
                 ],
@@ -123,7 +122,7 @@ class _TdSettingsPageState extends State<TdSettingsPage> {
                         setState(() => _soundEnabled = v);
                         await widget.prefs.setSoundEnabled(v);
                       },
-                      activeColor: AppTheme.skyBlue,
+                      activeThumbColor: AppTheme.skyBlue,
                     ),
                   ),
                   const Divider(height: 1, indent: 56),
@@ -138,7 +137,7 @@ class _TdSettingsPageState extends State<TdSettingsPage> {
                         setState(() => _effectsEnabled = v);
                         await widget.prefs.setEffectsEnabled(v);
                       },
-                      activeColor: AppTheme.mint,
+                      activeThumbColor: AppTheme.mint,
                     ),
                   ),
                 ],
@@ -261,7 +260,7 @@ class _SettingsTile extends StatelessWidget {
             Container(
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: iconColor.withOpacity(0.15),
+                color: iconColor.withValues(alpha: 0.15),
                 borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
               ),
               child: Icon(icon, size: 20, color: iconColor),

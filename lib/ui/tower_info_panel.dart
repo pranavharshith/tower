@@ -8,13 +8,13 @@ class TowerInfoPanel extends StatelessWidget {
   final double attackSpeed;
 
   const TowerInfoPanel({
-    Key? key,
+    super.key,
     required this.name,
     required this.cost,
     required this.damage,
     required this.range,
     required this.attackSpeed,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {

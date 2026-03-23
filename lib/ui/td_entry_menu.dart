@@ -100,7 +100,7 @@ class TdEntryMenu extends StatelessWidget {
                         ),
                       ),
                       elevation: 4,
-                      shadowColor: AppTheme.primary.withOpacity(0.4),
+                      shadowColor: AppTheme.primary.withValues(alpha: 0.4),
                       textStyle: GoogleFonts.nunito(
                         fontSize: 18,
                         fontWeight: FontWeight.w700,

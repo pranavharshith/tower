@@ -19,8 +19,31 @@ class TutorialOverlay extends StatefulWidget {
   State<TutorialOverlay> createState() => _TutorialOverlayState();
 }
 
-class _TutorialOverlayState extends State<TutorialOverlay> {
+class _TutorialOverlayState extends State<TutorialOverlay>
+    with SingleTickerProviderStateMixin {
   int _currentPage = 0;
+  late final AnimationController _pulseController;
+  late final Animation<double> _pulseAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 800),
+    )..repeat(reverse: true);
+
+    _pulseAnimation = Tween<double>(begin: 1.0, end: 1.15).animate(
+      CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
+    );
+  }
+
+  @override
+  void dispose() {
+    // Strictly dispose controller before super.dispose to prevent active Ticker exceptions
+    _pulseController.dispose();
+    super.dispose();
+  }
 
   final List<_TutorialPage> _pages = [
     _TutorialPage(
@@ -31,11 +54,25 @@ class _TutorialOverlayState extends State<TutorialOverlay> {
       tip: 'Tap a tower from the store, then tap on the map to place it.',
     ),
     _TutorialPage(
+      icon: Icons.touch_app_rounded,
+      title: 'Tower Store Controls',
+      description:
+          'Tap a tower in the store to select it for placement.\n\nTap the same tower again to deselect and cancel placement.\n\nTap empty space on the map to deselect a placed tower.',
+      tip: 'Use the toggle to quickly change your mind about placement!',
+    ),
+    _TutorialPage(
+      icon: Icons.ads_click_rounded,
+      title: 'Placed Tower Controls',
+      description:
+          'Single tap a placed tower to see its attack range.\n\nDouble tap a tower to view detailed stats and upgrade options.\n\nTap empty space to hide the range circle.',
+      tip: 'Use range circles to plan optimal tower placement!',
+    ),
+    _TutorialPage(
       icon: Icons.attach_money_rounded,
       title: 'Earn & Upgrade',
       description:
           'Defeat enemies to earn cash. Use it to upgrade or sell towers.',
-      tip: 'Tap an existing tower to see upgrade options.',
+      tip: 'Upgraded towers are more powerful and have better range.',
     ),
     _TutorialPage(
       icon: Icons.waves_rounded,
@@ -46,10 +83,10 @@ class _TutorialOverlayState extends State<TutorialOverlay> {
     ),
     _TutorialPage(
       icon: Icons.tips_and_updates_rounded,
-      title: 'Pro Tips',
+      title: 'Tower Types',
       description:
-          'Mix different tower types for maximum effectiveness.\n\n• Gun towers: Cheap, fast attack\n• Laser towers: Good damage, medium range\n• Sniper towers: Long range, high damage\n• Rocket towers: Area damage\n• Tesla towers: Chain lightning',
-      tip: 'Balance your tower placement - don\'t rely on just one type!',
+          'Each tower has unique strengths:\n\n• Gun: Fast, cheap, short range\n• Laser: Balanced damage & range\n• Sniper: Long range, high damage\n• Rocket: Area damage, splash effect\n• Tesla: Chain lightning to multiple enemies',
+      tip: 'Mix different tower types for maximum effectiveness!',
     ),
   ];
 
@@ -85,21 +122,24 @@ class _TutorialOverlayState extends State<TutorialOverlay> {
                       shape: BoxShape.circle,
                       color: index == _currentPage
                           ? AppTheme.primary
-                          : AppTheme.textMuted.withOpacity(0.3),
+                          : AppTheme.textMuted.withValues(alpha: 0.3),
                     ),
                   ),
                 ),
               ),
               const SizedBox(height: 40),
-              // Icon
-              Container(
-                padding: const EdgeInsets.all(24),
-                decoration: BoxDecoration(
-                  color: AppTheme.surface,
-                  shape: BoxShape.circle,
-                  boxShadow: AppTheme.softShadow,
+              // Icon (Animated Pulse)
+              ScaleTransition(
+                scale: _pulseAnimation,
+                child: Container(
+                  padding: const EdgeInsets.all(24),
+                  decoration: BoxDecoration(
+                    color: AppTheme.surface,
+                    shape: BoxShape.circle,
+                    boxShadow: AppTheme.softShadow,
+                  ),
+                  child: Icon(page.icon, size: 64, color: AppTheme.primary),
                 ),
-                child: Icon(page.icon, size: 64, color: AppTheme.primary),
               ),
               const SizedBox(height: 32),
               // Title
@@ -130,7 +170,7 @@ class _TutorialOverlayState extends State<TutorialOverlay> {
                   color: AppTheme.surface,
                   borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
                   border: Border.all(
-                    color: AppTheme.primary.withOpacity(0.3),
+                    color: AppTheme.primary.withValues(alpha: 0.3),
                     width: 1,
                   ),
                 ),

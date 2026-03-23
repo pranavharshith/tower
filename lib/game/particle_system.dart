@@ -53,7 +53,7 @@ class Particle extends Component {
     // Calculate alpha based on remaining lifetime
     final alpha = 1.0 - (currentLifetime / lifetime);
     final paint = Paint()
-      ..color = color.withOpacity(alpha)
+      ..color = color.withValues(alpha: alpha)
       ..style = PaintingStyle.fill;
 
     canvas.drawCircle(Offset(position.x, position.y), radius, paint);
@@ -91,10 +91,10 @@ class ParticleSystem extends Component {
       // Vary the color slightly
       final colorVariation = (random.nextDouble() - 0.5) * 50;
       final particleColor = Color.fromRGBO(
-        (baseColor.red + colorVariation).clamp(0, 255).toInt(),
-        (baseColor.green + colorVariation).clamp(0, 255).toInt(),
-        (baseColor.blue + colorVariation).clamp(0, 255).toInt(),
-        baseColor.opacity,
+        ((baseColor.r * 255.0).round() + colorVariation).clamp(0, 255).toInt(),
+        ((baseColor.g * 255.0).round() + colorVariation).clamp(0, 255).toInt(),
+        ((baseColor.b * 255.0).round() + colorVariation).clamp(0, 255).toInt(),
+        baseColor.a,
       );
 
       particles.add(
@@ -150,7 +150,7 @@ class ParticleSystem extends Component {
         Particle(
           position: position + offset,
           velocity: Vector2.zero(),
-          color: baseColor.withOpacity(0.5),
+          color: baseColor.withValues(alpha: 0.5),
           radius: 2 + random.nextDouble() * 2,
           lifetime: 0.3,
           decayRate: 2.0,

@@ -8,7 +8,10 @@ class SoundService {
   factory SoundService() => _instance;
   SoundService._internal();
 
-  final AudioPlayer _audioPlayer = AudioPlayer();
+  final List<AudioPlayer> _audioPlayers = [];
+  static const int _maxPlayers =
+      8; // Pool of audio players for simultaneous sounds
+  int _currentPlayerIndex = 0;
   bool _isInitialized = false;
   bool _isEnabled = true;
 
@@ -31,6 +34,11 @@ class SoundService {
     if (_isInitialized) return;
 
     try {
+      // Create a pool of audio players for simultaneous sounds
+      for (int i = 0; i < _maxPlayers; i++) {
+        _audioPlayers.add(AudioPlayer());
+      }
+
       // Load all sound effects
       for (final entry in _soundEffects.entries) {
         try {
@@ -73,12 +81,15 @@ class SoundService {
         return;
       }
 
-      // Stop any currently playing sound and play the new one
-      await _audioPlayer.stop();
-      await _audioPlayer.setSource(source);
-      await _audioPlayer.setVolume(volume);
-      await _audioPlayer.setPlaybackRate(rate);
-      await _audioPlayer.resume();
+      // Get the next available player from the pool (round-robin)
+      final player = _audioPlayers[_currentPlayerIndex];
+      _currentPlayerIndex = (_currentPlayerIndex + 1) % _maxPlayers;
+
+      // Play the sound (don't wait for stop, just play on the next available player)
+      await player.stop();
+      await player.setVolume(volume);
+      await player.setPlaybackRate(rate);
+      await player.play(source);
     } catch (e) {
       debugPrint('Error playing sound $soundName: $e');
     }
@@ -92,7 +103,9 @@ class SoundService {
   /// Stop all currently playing sounds
   Future<void> stopAll() async {
     try {
-      await _audioPlayer.stop();
+      for (final player in _audioPlayers) {
+        await player.stop();
+      }
     } catch (e) {
       debugPrint('Error stopping sounds: $e');
     }
@@ -100,7 +113,10 @@ class SoundService {
 
   /// Dispose of resources
   void dispose() {
-    _audioPlayer.dispose();
+    for (final player in _audioPlayers) {
+      player.dispose();
+    }
+    _audioPlayers.clear();
     _loadedSounds.clear();
     _isInitialized = false;
   }

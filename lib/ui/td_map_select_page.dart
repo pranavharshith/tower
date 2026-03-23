@@ -102,7 +102,7 @@ class _TdMapSelectPageState extends State<TdMapSelectPage> {
                         ),
                       ),
                       elevation: 4,
-                      shadowColor: AppTheme.primary.withOpacity(0.4),
+                      shadowColor: AppTheme.primary.withValues(alpha: 0.4),
                       textStyle: GoogleFonts.nunito(
                         fontSize: 18,
                         fontWeight: FontWeight.w700,
@@ -213,7 +213,7 @@ class _MapCard extends StatelessWidget {
                           style: GoogleFonts.nunito(
                             fontSize: 10,
                             fontWeight: FontWeight.w600,
-                            color: AppTheme.textPrimary,
+                            color: Colors.black,
                           ),
                         ),
                       )
@@ -307,7 +307,7 @@ class _MiniMapPreview extends StatelessWidget {
           width: cellWidth,
           height: cellHeight,
           decoration: BoxDecoration(
-            color: AppTheme.coral.withOpacity(0.8),
+            color: AppTheme.coral.withValues(alpha: 0.8),
             borderRadius: BorderRadius.circular(2),
           ),
         ),
@@ -320,7 +320,7 @@ class _MiniMapPreview extends StatelessWidget {
           width: cellWidth,
           height: cellHeight,
           decoration: BoxDecoration(
-            color: AppTheme.success.withOpacity(0.8),
+            color: AppTheme.success.withValues(alpha: 0.8),
             borderRadius: BorderRadius.circular(2),
           ),
         ),
@@ -392,25 +392,45 @@ class _PathPainter extends CustomPainter {
   }
 
   List<_Cell> _getPathCells() {
-    // Generate stylized path patterns based on map key
+    // Generate accurate path patterns based on actual map layouts
     switch (mapKey) {
       case 'loops':
+        // Loops map: Multiple circular paths
         return _generateLoopPath();
-      case 'spiral':
-        return _generateSpiralPath();
       case 'branch':
-      case 'branchAlt':
+        // Branch map: Single path that splits into two branches
         return _generateBranchPath();
       case 'city':
+        // City map: Grid-like streets with turns
         return _generateCityPath();
       case 'freeway':
+        // Freeway: Long straight highway-style path
         return _generateFreewayPath();
       case 'walls':
+        // Walls: Maze-like path with many walls
         return _generateWallsPath();
       case 'fork':
+        // Fork: Path splits into two separate routes
         return _generateForkPath();
+      case 'dualU':
+        // Dual-U: Two U-shaped corridors
+        return _generateDualUPath();
+      case 'empty2':
+      case 'empty3':
+        // Empty maps: No walls, just open space
+        return _generateEmptyPath();
+      case 'sparse2':
+      case 'sparse3':
+        // Sparse: Few scattered walls (10% coverage)
+        return _generateSparsePath();
+      case 'dense2':
+      case 'dense3':
+        // Dense: Many walls (20% coverage)
+        return _generateDensePath();
+      case 'solid2':
+        // Solid: Very dense walls (30% coverage)
+        return _generateSolidPath();
       default:
-        // Random maps - show a simple path
         return _generateSimplePath();
     }
   }
@@ -421,28 +441,6 @@ class _PathPainter extends CustomPainter {
       _Cell(0, 3), _Cell(1, 3), _Cell(2, 3), _Cell(3, 3),
       _Cell(3, 2), _Cell(3, 1), _Cell(4, 1), _Cell(5, 1),
       _Cell(5, 2), _Cell(5, 3), _Cell(6, 3), _Cell(7, 3),
-    ];
-  }
-
-  List<_Cell> _generateSpiralPath() {
-    return [
-      _Cell(0, 3),
-      _Cell(1, 3),
-      _Cell(2, 3),
-      _Cell(3, 3),
-      _Cell(3, 2),
-      _Cell(4, 2),
-      _Cell(5, 2),
-      _Cell(5, 3),
-      _Cell(5, 4),
-      _Cell(4, 4),
-      _Cell(3, 4),
-      _Cell(3, 5),
-      _Cell(3, 6),
-      _Cell(4, 6),
-      _Cell(5, 6),
-      _Cell(6, 6),
-      _Cell(7, 6),
     ];
   }
 
@@ -535,6 +533,33 @@ class _PathPainter extends CustomPainter {
     ];
   }
 
+  List<_Cell> _generateDualUPath() {
+    // Dual-U: Two U-shaped corridors
+    return [
+      // Upper U
+      _Cell(1, 1),
+      _Cell(2, 1),
+      _Cell(3, 1),
+      _Cell(4, 1),
+      _Cell(5, 1),
+      _Cell(6, 1),
+      _Cell(1, 2), _Cell(1, 3),
+      _Cell(6, 2), _Cell(6, 3),
+      // Lower U
+      _Cell(1, 5),
+      _Cell(2, 5),
+      _Cell(3, 5),
+      _Cell(4, 5),
+      _Cell(5, 5),
+      _Cell(6, 5),
+      _Cell(1, 6), _Cell(1, 7),
+      _Cell(6, 6), _Cell(6, 7),
+      // Center connector
+      _Cell(3, 3), _Cell(3, 4), _Cell(4, 3), _Cell(4, 4),
+      _Cell(7, 3), _Cell(7, 4),
+    ];
+  }
+
   List<_Cell> _generateSimplePath() {
     return [
       _Cell(0, 4),
@@ -545,6 +570,71 @@ class _PathPainter extends CustomPainter {
       _Cell(5, 4),
       _Cell(6, 4),
       _Cell(7, 4),
+    ];
+  }
+
+  List<_Cell> _generateEmptyPath() {
+    // Empty map: Simple straight path across middle
+    return [
+      _Cell(0, 4),
+      _Cell(1, 4),
+      _Cell(2, 4),
+      _Cell(3, 4),
+      _Cell(4, 4),
+      _Cell(5, 4),
+      _Cell(6, 4),
+      _Cell(7, 4),
+    ];
+  }
+
+  List<_Cell> _generateSparsePath() {
+    // Sparse: Simple path with a few scattered walls shown
+    return [
+      _Cell(0, 3),
+      _Cell(1, 3),
+      _Cell(2, 3),
+      _Cell(3, 3),
+      _Cell(3, 4),
+      _Cell(4, 4),
+      _Cell(5, 4),
+      _Cell(6, 4),
+      _Cell(7, 4),
+    ];
+  }
+
+  List<_Cell> _generateDensePath() {
+    // Dense: Winding path to show more walls
+    return [
+      _Cell(0, 2),
+      _Cell(1, 2),
+      _Cell(2, 2),
+      _Cell(2, 3),
+      _Cell(2, 4),
+      _Cell(3, 4),
+      _Cell(4, 4),
+      _Cell(5, 4),
+      _Cell(5, 5),
+      _Cell(6, 5),
+      _Cell(7, 5),
+    ];
+  }
+
+  List<_Cell> _generateSolidPath() {
+    // Solid: Very winding path showing heavy wall coverage
+    return [
+      _Cell(0, 1),
+      _Cell(1, 1),
+      _Cell(1, 2),
+      _Cell(1, 3),
+      _Cell(2, 3),
+      _Cell(3, 3),
+      _Cell(3, 4),
+      _Cell(3, 5),
+      _Cell(4, 5),
+      _Cell(5, 5),
+      _Cell(6, 5),
+      _Cell(6, 6),
+      _Cell(7, 6),
     ];
   }
 

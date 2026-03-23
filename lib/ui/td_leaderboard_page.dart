@@ -82,11 +82,11 @@ class _LeaderboardCard extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
         color: isHighlight
-            ? AppTheme.primary.withOpacity(0.1)
+            ? AppTheme.primary.withValues(alpha: 0.1)
             : AppTheme.surface,
         borderRadius: BorderRadius.circular(AppTheme.radiusLarge),
         border: isHighlight
-            ? Border.all(color: AppTheme.primary.withOpacity(0.3), width: 2)
+            ? Border.all(color: AppTheme.primary.withValues(alpha: 0.3), width: 2)
             : null,
         boxShadow: AppTheme.softShadow,
       ),
@@ -140,7 +140,7 @@ class _LeaderboardCard extends StatelessWidget {
                             vertical: 4,
                           ),
                           decoration: BoxDecoration(
-                            color: AppTheme.primary.withOpacity(0.2),
+                            color: AppTheme.primary.withValues(alpha: 0.2),
                             borderRadius: BorderRadius.circular(
                               AppTheme.radiusPill,
                             ),
@@ -200,8 +200,8 @@ class _LeaderboardCard extends StatelessWidget {
               decoration: BoxDecoration(
                 color: bestWave > 0
                     ? (isHighlight
-                          ? AppTheme.primary.withOpacity(0.15)
-                          : AppTheme.mustard.withOpacity(0.2))
+                          ? AppTheme.primary.withValues(alpha: 0.15)
+                          : AppTheme.mustard.withValues(alpha: 0.2))
                     : AppTheme.surfaceVariant,
                 borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
               ),
@@ -227,7 +227,7 @@ class _LeaderboardCard extends StatelessWidget {
                       fontWeight: FontWeight.w600,
                       color: bestWave > 0
                           ? (isHighlight
-                                ? AppTheme.primary.withOpacity(0.7)
+                                ? AppTheme.primary.withValues(alpha: 0.7)
                                 : AppTheme.textSecondary)
                           : AppTheme.textMuted,
                     ),
