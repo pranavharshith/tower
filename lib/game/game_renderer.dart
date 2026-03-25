@@ -141,106 +141,79 @@ extension GameRenderer on TdGame {
     canvas.save();
     canvas.translate(cx, cy);
 
-    // Draw devil horns (curved triangles on top)
+    _drawBossHorns(canvas, r);
+    canvas.drawCircle(Offset.zero, r, paint);
+    _drawBossFace(canvas, r);
+    _drawBossCrown(canvas, r);
+
+    canvas.restore();
+  }
+
+  void _drawBossHorns(Canvas canvas, double r) {
     final hornPaint = Paint()
-      ..color =
-          const Color(0xFFFF0000) // Red horns
+      ..color = const Color(0xFFFF0000)
       ..style = PaintingStyle.fill;
 
-    // Left horn (curved)
     final leftHornPath = Path()
       ..moveTo(-r * 0.4, -r * 0.6)
-      ..quadraticBezierTo(
-        -r * 0.7,
-        -r * 1.3, // Control point (curves outward)
-        -r * 0.3,
-        -r * 1.1, // Tip point
-      )
-      ..quadraticBezierTo(
-        -r * 0.5,
-        -r * 0.8, // Control point (curves inward)
-        -r * 0.4,
-        -r * 0.6, // Back to base
-      )
+      ..quadraticBezierTo(-r * 0.7, -r * 1.3, -r * 0.3, -r * 1.1)
+      ..quadraticBezierTo(-r * 0.5, -r * 0.8, -r * 0.4, -r * 0.6)
       ..close();
     canvas.drawPath(leftHornPath, hornPaint);
 
-    // Right horn (curved)
     final rightHornPath = Path()
       ..moveTo(r * 0.4, -r * 0.6)
-      ..quadraticBezierTo(
-        r * 0.7,
-        -r * 1.3, // Control point (curves outward)
-        r * 0.3,
-        -r * 1.1, // Tip point
-      )
-      ..quadraticBezierTo(
-        r * 0.5,
-        -r * 0.8, // Control point (curves inward)
-        r * 0.4,
-        -r * 0.6, // Back to base
-      )
+      ..quadraticBezierTo(r * 0.7, -r * 1.3, r * 0.3, -r * 1.1)
+      ..quadraticBezierTo(r * 0.5, -r * 0.8, r * 0.4, -r * 0.6)
       ..close();
     canvas.drawPath(rightHornPath, hornPaint);
+  }
 
-    // Draw main body as circle (devil face)
-    canvas.drawCircle(Offset.zero, r, paint);
-
-    // Draw angry eyes with pupils
+  void _drawBossFace(Canvas canvas, double r) {
     final eyeWhitePaint = Paint()
       ..color = const Color(0xFFFFFFFF)
       ..style = PaintingStyle.fill;
 
-    // Eye whites
     canvas.drawCircle(Offset(-r * 0.35, -r * 0.1), r * 0.2, eyeWhitePaint);
     canvas.drawCircle(Offset(r * 0.35, -r * 0.1), r * 0.2, eyeWhitePaint);
 
-    // Angry eyebrows
     final browPaint = Paint()
       ..color = const Color(0xFF000000)
       ..strokeWidth = 2
       ..style = PaintingStyle.stroke;
 
-    final leftBrowPath = Path()
-      ..moveTo(-r * 0.5, -r * 0.25)
-      ..lineTo(-r * 0.2, -r * 0.15);
-    canvas.drawPath(leftBrowPath, browPaint);
+    canvas.drawPath(
+      Path()
+        ..moveTo(-r * 0.5, -r * 0.25)
+        ..lineTo(-r * 0.2, -r * 0.15),
+      browPaint,
+    );
+    canvas.drawPath(
+      Path()
+        ..moveTo(r * 0.5, -r * 0.25)
+        ..lineTo(r * 0.2, -r * 0.15),
+      browPaint,
+    );
 
-    final rightBrowPath = Path()
-      ..moveTo(r * 0.5, -r * 0.25)
-      ..lineTo(r * 0.2, -r * 0.15);
-    canvas.drawPath(rightBrowPath, browPaint);
-
-    // Red glowing pupils
     final pupilPaint = Paint()
       ..color = const Color(0xFFFF0000)
       ..style = PaintingStyle.fill;
     canvas.drawCircle(Offset(-r * 0.35, -r * 0.1), r * 0.1, pupilPaint);
     canvas.drawCircle(Offset(r * 0.35, -r * 0.1), r * 0.1, pupilPaint);
 
-    // Draw sinister smile
-    final mouthPaint = Paint()
-      ..color =
-          const Color(0xFF8B0000) // Dark red
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2;
-
     final mouthPath = Path()
       ..moveTo(-r * 0.4, r * 0.3)
-      ..quadraticBezierTo(
-        0,
-        r * 0.6, // Control point (creates smile curve)
-        r * 0.4,
-        r * 0.3,
-      );
-    canvas.drawPath(mouthPath, mouthPaint);
+      ..quadraticBezierTo(0, r * 0.6, r * 0.4, r * 0.3);
+    canvas.drawPath(
+      mouthPath,
+      Paint()
+        ..color = const Color(0xFF8B0000)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2,
+    );
+  }
 
-    // Draw crown on top (gold)
-    final crownPaint = Paint()
-      ..color =
-          const Color(0xFFFFD700) // Gold crown
-      ..style = PaintingStyle.fill;
-
+  void _drawBossCrown(Canvas canvas, double r) {
     final crownPath = Path()
       ..moveTo(-r * 0.5, -r * 0.8)
       ..lineTo(-r * 0.25, -r * 1.2)
@@ -248,9 +221,12 @@ extension GameRenderer on TdGame {
       ..lineTo(r * 0.25, -r * 1.2)
       ..lineTo(r * 0.5, -r * 0.8)
       ..close();
-    canvas.drawPath(crownPath, crownPaint);
-
-    canvas.restore();
+    canvas.drawPath(
+      crownPath,
+      Paint()
+        ..color = const Color(0xFFFFD700)
+        ..style = PaintingStyle.fill,
+    );
   }
 
   void _drawHealthBar(
@@ -294,14 +270,17 @@ extension GameRenderer on TdGame {
     double r,
     double tileSize,
   ) {
-    // Boss has 3 HP bars stacked vertically
+    // Boss has multiple HP bars based on total health
+    // Wave 5 boss (800 HP): 1 bar
+    // Wave 10+ boss (1200+ HP): 2 bars
+    final numBars = e.maxHealth >= 1200 ? 2 : 1;
     final barWidth = r * 3.5;
     final barHeight = max(4, r * 0.35);
     final totalHealth = e.maxHealth;
-    final healthPerBar = totalHealth / 3;
+    final healthPerBar = totalHealth / numBars;
 
-    for (int i = 0; i < 3; i++) {
-      final barTop = cy - r - barHeight * (3 - i) - 2 * (3 - i);
+    for (int i = 0; i < numBars; i++) {
+      final barTop = cy - r - barHeight * (numBars - i) - 2 * (numBars - i);
       final barStart = healthPerBar * i;
       final barEnd = healthPerBar * (i + 1);
 
@@ -444,76 +423,98 @@ extension GameRenderer on TdGame {
 
     switch (t.towerType) {
       case TdTowerType.gun:
-        final length = r * 0.8;
-        final width = r * 0.3;
-        final rect = Rect.fromLTRB(0, -width / 2, length, width / 2);
-        canvas.drawRect(rect, barrelPaint);
-        canvas.drawRect(rect, borderPaint);
-      case TdTowerType.sniper:
-        // Triangle shape
-        final height = r * sqrt(3) / 2;
-        final back = -height / 3;
-        final front = height * 2 / 3;
-        final side = r / 2;
-        final path = Path()
-          ..moveTo(back, -side)
-          ..lineTo(back, side)
-          ..lineTo(front, 0)
-          ..close();
-        canvas.drawPath(
-          path,
-          Paint()
-            ..color = Color.fromARGB(255, t.color[0], t.color[1], t.color[2]),
-        );
-        canvas.drawPath(path, borderPaint);
-      case TdTowerType.rocket:
-        // Double barrel with fins
-        final width = r * 0.15;
-        final length = r * 0.6;
-        canvas.drawRect(
-          Rect.fromLTRB(0, -width * 2, length, -width),
-          barrelPaint,
-        );
-        canvas.drawRect(
-          Rect.fromLTRB(0, width, length, width * 2),
-          barrelPaint,
-        );
-        // Fins
-        final finPaint = GamePaints.healthFill;
-        canvas.drawRect(
-          Rect.fromLTRB(length, -width * 3, length + width, width * 3),
-          finPaint,
-        );
-      case TdTowerType.tesla:
-        // Hexagon base with circle
-        _drawPolygon(
+        _drawRectangularBarrel(
           canvas,
-          6,
-          r * 0.5,
-          Paint()
-            ..color = Color.fromARGB(
-              255,
-              t.secondary[0],
-              t.secondary[1],
-              t.secondary[2],
-            ),
+          r * 0.8,
+          r * 0.3,
+          barrelPaint,
+          borderPaint,
         );
-        canvas.drawCircle(
-          Offset.zero,
-          r * 0.55,
-          Paint()
-            ..color = Color.fromARGB(255, t.color[0], t.color[1], t.color[2]),
-        );
+      case TdTowerType.sniper:
+        _drawTriangleBarrel(canvas, t, r, borderPaint);
+      case TdTowerType.rocket:
+        _drawDoubleBarrel(canvas, r);
+      case TdTowerType.tesla:
+        _drawTeslaCore(canvas, t, r);
       case TdTowerType.laser:
       case TdTowerType.slow:
       case TdTowerType.bomb:
-        // Default barrel
-        final length = r * 0.7;
-        final width = r * 0.25;
-        final rect = Rect.fromLTRB(0, -width / 2, length, width / 2);
-        canvas.drawRect(rect, barrelPaint);
-        canvas.drawRect(rect, borderPaint);
+        _drawRectangularBarrel(
+          canvas,
+          r * 0.7,
+          r * 0.25,
+          barrelPaint,
+          borderPaint,
+        );
     }
+  }
+
+  void _drawRectangularBarrel(
+    Canvas canvas,
+    double length,
+    double width,
+    Paint barrelPaint,
+    Paint borderPaint,
+  ) {
+    final rect = Rect.fromLTRB(0, -width / 2, length, width / 2);
+    canvas.drawRect(rect, barrelPaint);
+    canvas.drawRect(rect, borderPaint);
+  }
+
+  void _drawTriangleBarrel(
+    Canvas canvas,
+    TdTower t,
+    double r,
+    Paint borderPaint,
+  ) {
+    final height = r * sqrt(3) / 2;
+    final back = -height / 3;
+    final front = height * 2 / 3;
+    final side = r / 2;
+    final path = Path()
+      ..moveTo(back, -side)
+      ..lineTo(back, side)
+      ..lineTo(front, 0)
+      ..close();
+    canvas.drawPath(
+      path,
+      Paint()..color = Color.fromARGB(255, t.color[0], t.color[1], t.color[2]),
+    );
+    canvas.drawPath(path, borderPaint);
+  }
+
+  void _drawDoubleBarrel(Canvas canvas, double r) {
+    final barrelPaint = Paint()
+      ..color = const Color(0xFF95A5A6)
+      ..style = PaintingStyle.fill;
+    final width = r * 0.15;
+    final length = r * 0.6;
+    canvas.drawRect(Rect.fromLTRB(0, -width * 2, length, -width), barrelPaint);
+    canvas.drawRect(Rect.fromLTRB(0, width, length, width * 2), barrelPaint);
+    canvas.drawRect(
+      Rect.fromLTRB(length, -width * 3, length + width, width * 3),
+      GamePaints.healthFill,
+    );
+  }
+
+  void _drawTeslaCore(Canvas canvas, TdTower t, double r) {
+    _drawPolygon(
+      canvas,
+      6,
+      r * 0.5,
+      Paint()
+        ..color = Color.fromARGB(
+          255,
+          t.secondary[0],
+          t.secondary[1],
+          t.secondary[2],
+        ),
+    );
+    canvas.drawCircle(
+      Offset.zero,
+      r * 0.55,
+      Paint()..color = Color.fromARGB(255, t.color[0], t.color[1], t.color[2]),
+    );
   }
 
   void _drawPolygon(Canvas canvas, int sides, double radius, Paint paint) {

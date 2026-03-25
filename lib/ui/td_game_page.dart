@@ -8,13 +8,17 @@ import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../game/td_game.dart';
-import '../game/td_simulation.dart';
 import '../services/td_prefs.dart';
 import 'app_theme.dart';
 import 'td_leaderboard_page.dart';
 import 'tutorial_overlay.dart';
 import 'widgets/game_hud_widgets.dart';
 import 'widgets/tower_stats_modal.dart';
+import 'dialogs/upgrade_dialog.dart';
+import 'dialogs/sell_dialog.dart';
+import 'dialogs/settings_dialog.dart';
+import '../game/entities/tower.dart';
+import 'dialogs/quit_dialog.dart';
 
 class TdGamePage extends ConsumerStatefulWidget {
   final TdPrefs prefs;
@@ -77,31 +81,37 @@ class _TdGamePageState extends ConsumerState<TdGamePage> {
     _game.onPlacementFailed = (reason) {
       if (!mounted) return;
       HapticFeedback.heavyImpact();
-      // Reset the tap to place message so it shows again
-      setState(() {
-        _showTapToPlace = true;
-        _lastPlacingType = null; // Reset so it will show again
-      });
-      _tapToPlaceTimer?.cancel();
-      _tapToPlaceTimer = Timer(const Duration(seconds: 3), () {
-        if (mounted) {
-          setState(() {
-            _showTapToPlace = false;
-          });
-        }
-      });
 
-      ScaffoldMessenger.of(context).clearSnackBars();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Cannot place tower: $reason',
-            style: GoogleFonts.nunito(),
+      // Use addPostFrameCallback to avoid setState during build
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+
+        setState(() {
+          _showTapToPlace = true;
+          _lastPlacingType = null; // Reset so it will show again
+        });
+
+        _tapToPlaceTimer?.cancel();
+        _tapToPlaceTimer = Timer(const Duration(seconds: 3), () {
+          if (mounted) {
+            setState(() {
+              _showTapToPlace = false;
+            });
+          }
+        });
+
+        ScaffoldMessenger.of(context).clearSnackBars();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Cannot place tower: $reason',
+              style: GoogleFonts.nunito(),
+            ),
+            backgroundColor: AppTheme.error,
+            duration: const Duration(seconds: 2),
           ),
-          backgroundColor: AppTheme.error,
-          duration: const Duration(seconds: 2),
-        ),
-      );
+        );
+      });
     };
   }
 
@@ -186,11 +196,10 @@ class _TdGamePageState extends ConsumerState<TdGamePage> {
         tower: tower,
         onUpgrade: canAffordUpgrade
             ? () {
-                // Close modal and show upgrade confirmation
                 Navigator.pop(context);
                 _showUpgradeConfirmation(tower);
               }
-            : null, // Disabled when can't afford or already upgraded
+            : null,
         onSell: () {
           Navigator.pop(context);
           _showSellConfirmation(tower, sellPrice);
@@ -201,371 +210,36 @@ class _TdGamePageState extends ConsumerState<TdGamePage> {
   }
 
   void _showGameSettings() {
-    // Pause the game when opening settings
     final wasPaused = _game.sim.paused;
-    if (!wasPaused) {
-      _game.togglePause();
-    }
-
-    showDialog(
+    showGameSettings(
       context: context,
-      barrierDismissible: true,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) {
-          return AlertDialog(
-            backgroundColor: AppTheme.surface,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(AppTheme.radiusLarge),
-            ),
-            title: Row(
-              children: [
-                Icon(Icons.settings_rounded, color: AppTheme.primary, size: 28),
-                const SizedBox(width: 12),
-                Text(
-                  'Game Settings',
-                  style: GoogleFonts.nunito(
-                    fontWeight: FontWeight.bold,
-                    color: AppTheme.textPrimary,
-                    fontSize: 20,
-                  ),
-                ),
-              ],
-            ),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // Sound toggle
-                Container(
-                  decoration: BoxDecoration(
-                    color: AppTheme.background,
-                    borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
-                  ),
-                  child: SwitchListTile(
-                    title: Text(
-                      'Sound Effects',
-                      style: GoogleFonts.nunito(
-                        color: AppTheme.textPrimary,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    subtitle: Text(
-                      _game.soundService.isEnabled ? 'Enabled' : 'Disabled',
-                      style: GoogleFonts.nunito(
-                        color: AppTheme.textMuted,
-                        fontSize: 12,
-                      ),
-                    ),
-                    value: _game.soundService.isEnabled,
-                    activeColor: AppTheme.success,
-                    onChanged: (value) {
-                      setDialogState(() {
-                        _game.setSoundsEnabled(value);
-                        widget.prefs.setSoundEnabled(value);
-                      });
-                    },
-                  ),
-                ),
-              ],
-            ),
-            actions: [
-              TextButton(
-                onPressed: () {
-                  Navigator.of(context).pop();
-                  // Resume game if it wasn't paused before
-                  if (!wasPaused) {
-                    _game.togglePause();
-                  }
-                },
-                child: Text(
-                  'Close',
-                  style: GoogleFonts.nunito(
-                    color: AppTheme.primary,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-            ],
-          );
-        },
-      ),
-    ).then((_) {
-      // Ensure game resumes when dialog is dismissed by tapping outside
-      if (!wasPaused && _game.sim.paused) {
-        _game.togglePause();
-      }
-    });
+      soundEnabled: _game.soundService.isEnabled,
+      onSoundChanged: (value) {
+        _game.setSoundsEnabled(value);
+        widget.prefs.setSoundEnabled(value);
+      },
+      onPause: _game.togglePause,
+      onResume: _game.togglePause,
+      wasPaused: wasPaused,
+    );
   }
 
   void _showUpgradeConfirmation(TdTower tower) {
-    final upgrade = tower.towerType.upgrade;
-    if (upgrade == null) return;
-
-    final upgradeCost = upgrade.cost;
-    final cash = _game.sim.cash;
-
-    // Calculate stat changes
-    final oldRange = tower.range;
-    final newRange = upgrade.range ?? oldRange;
-    final rangeDiff = newRange - oldRange;
-
-    final oldDpsMin = tower.damageMin;
-    final newDpsMin = upgrade.damageMin ?? oldDpsMin;
-    final dpsMinDiff = newDpsMin - oldDpsMin;
-
-    final oldDpsMax = tower.damageMax;
-    final newDpsMax = upgrade.damageMax ?? oldDpsMax;
-    // dpsMaxDiff calculated but not displayed separately (we use min diff for color)
-
-    final oldCooldownAvg = (tower.cooldownMin + tower.cooldownMax) / 120.0;
-    final newCooldownMin = upgrade.cooldownMin ?? tower.cooldownMin;
-    final newCooldownMax = upgrade.cooldownMax ?? tower.cooldownMax;
-    final newCooldownAvg = (newCooldownMin + newCooldownMax) / 120.0;
-    final cooldownDiff = oldCooldownAvg - newCooldownAvg; // Positive = faster
-
-    showDialog(
+    if (tower.towerType.upgrade == null) return;
+    showUpgradeConfirmation(
       context: context,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        backgroundColor: AppTheme.surface,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(AppTheme.radiusLarge),
-        ),
-        title: Row(
-          children: [
-            Icon(Icons.upgrade_rounded, color: AppTheme.success, size: 32),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                'Upgrade to ${upgrade.title}?',
-                style: GoogleFonts.nunito(
-                  fontWeight: FontWeight.bold,
-                  color: AppTheme.textPrimary,
-                  fontSize: 20,
-                ),
-              ),
-            ),
-          ],
-        ),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Cost display
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: AppTheme.error.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.attach_money_rounded,
-                      color: AppTheme.mustard,
-                      size: 20,
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      'Cost: \$$upgradeCost',
-                      style: GoogleFonts.nunito(
-                        fontWeight: FontWeight.w700,
-                        fontSize: 16,
-                        color: AppTheme.textPrimary,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 16),
-              // Stat changes header
-              Text(
-                'Stat Changes:',
-                style: GoogleFonts.nunito(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 14,
-                  color: AppTheme.textSecondary,
-                ),
-              ),
-              const SizedBox(height: 8),
-              // Range change
-              StatChangeRow(
-                icon: Icons.social_distance_rounded,
-                label: 'Range',
-                oldValue: '$oldRange tiles',
-                newValue: '$newRange tiles',
-                change: rangeDiff,
-                isGoodIfHigher: true,
-              ),
-              // Damage change
-              StatChangeRow(
-                icon: Icons.bolt_rounded,
-                label: 'Damage',
-                oldValue:
-                    '${oldDpsMin.toStringAsFixed(0)}-${oldDpsMax.toStringAsFixed(0)}',
-                newValue:
-                    '${newDpsMin.toStringAsFixed(0)}-${newDpsMax.toStringAsFixed(0)}',
-                change: dpsMinDiff, // Use min diff for color
-                isGoodIfHigher: true,
-              ),
-              // Cooldown change
-              StatChangeRow(
-                icon: Icons.timer_rounded,
-                label: 'Cooldown',
-                oldValue: '${oldCooldownAvg.toStringAsFixed(2)}s',
-                newValue: '${newCooldownAvg.toStringAsFixed(2)}s',
-                change: cooldownDiff, // Already inverted (positive = good)
-                isGoodIfHigher:
-                    false, // Lower is better, but we inverted the value
-              ),
-              // Cash remaining
-              const SizedBox(height: 16),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: AppTheme.success.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.account_balance_wallet_rounded,
-                      color: AppTheme.success,
-                      size: 20,
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      'Cash After: \$${cash - upgradeCost}',
-                      style: GoogleFonts.nunito(
-                        fontWeight: FontWeight.w600,
-                        fontSize: 14,
-                        color: AppTheme.success,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context); // Close dialog
-            },
-            style: TextButton.styleFrom(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-            ),
-            child: Text(
-              'Cancel',
-              style: GoogleFonts.nunito(
-                color: AppTheme.textSecondary,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-          ElevatedButton.icon(
-            onPressed: () {
-              Navigator.pop(context); // Close dialog
-              _game.upgradeTower(tower); // Execute upgrade with explicit tower
-              HapticFeedback.mediumImpact();
-              // Show success feedback
-              if (context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Row(
-                      children: [
-                        Icon(Icons.check_circle_rounded, color: Colors.white),
-                        const SizedBox(width: 12),
-                        Text(
-                          'Tower upgraded to ${upgrade.title}!',
-                          style: GoogleFonts.nunito(
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
-                    ),
-                    backgroundColor: AppTheme.success,
-                    duration: const Duration(seconds: 2),
-                    behavior: SnackBarBehavior.floating,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                  ),
-                );
-              }
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppTheme.success,
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
-              ),
-            ),
-            icon: const Icon(Icons.check_rounded),
-            label: Text(
-              'Upgrade',
-              style: GoogleFonts.nunito(fontWeight: FontWeight.bold),
-            ),
-          ),
-        ],
-      ),
+      tower: tower,
+      currentCash: _game.sim.cash,
+      onConfirm: () => _game.upgradeTower(tower),
     );
   }
 
   void _showSellConfirmation(TdTower tower, int sellPrice) {
-    showDialog(
+    showSellConfirmation(
       context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: AppTheme.surface,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(AppTheme.radiusLarge),
-        ),
-        title: Text(
-          'Sell Tower?',
-          style: GoogleFonts.nunito(
-            fontWeight: FontWeight.bold,
-            color: AppTheme.textPrimary,
-          ),
-        ),
-        content: Text(
-          'Sell ${tower.towerType.title} for \$$sellPrice?',
-          style: GoogleFonts.nunito(color: AppTheme.textSecondary),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text(
-              'Cancel',
-              style: GoogleFonts.nunito(
-                color: AppTheme.textSecondary,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pop(context);
-              _game.sellTowerDirect(tower);
-              HapticFeedback.lightImpact();
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppTheme.error,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
-              ),
-            ),
-            child: Text(
-              'Sell for \$$sellPrice',
-              style: GoogleFonts.nunito(
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
-        ],
-      ),
+      tower: tower,
+      sellPrice: sellPrice,
+      onConfirm: () => _game.sellTowerDirect(tower),
     );
   }
 
@@ -883,12 +557,46 @@ class _TdGamePageState extends ConsumerState<TdGamePage> {
                                   originY + hud.pendingTowerRow! * tileSize;
                               final tileCenterX = tileLeft + tileSize / 2;
 
+                              // Smart button positioning to keep them on-screen
+                              const buttonWidth =
+                                  160.0; // Approximate width of button container
+                              const buttonHeight = 40.0; // Approximate height
+                              const padding =
+                                  8.0; // Minimum padding from screen edges
+
+                              // Calculate default position (centered above tile)
+                              double buttonLeft =
+                                  tileCenterX - (buttonWidth / 2);
+                              double buttonTop = tileTop - buttonHeight - 10;
+
+                              // Adjust horizontal position if off-screen
+                              if (buttonLeft < padding) {
+                                // Too far left - align to left edge with padding
+                                buttonLeft = padding;
+                              } else if (buttonLeft + buttonWidth >
+                                  gameWidth - padding) {
+                                // Too far right - align to right edge with padding
+                                buttonLeft = gameWidth - buttonWidth - padding;
+                              }
+
+                              // Adjust vertical position if off-screen
+                              if (buttonTop < padding) {
+                                // Too close to top - place below tile instead
+                                buttonTop = tileTop + tileSize + 10;
+                              }
+
+                              // If still off-screen at bottom, place at bottom with padding
+                              if (buttonTop + buttonHeight >
+                                  gameHeight - padding) {
+                                buttonTop = gameHeight - buttonHeight - padding;
+                              }
+
                               return Stack(
                                 children: [
-                                  // Buttons positioned above the tile
+                                  // Buttons with smart positioning
                                   Positioned(
-                                    left: tileCenterX - 80,
-                                    top: tileTop - 50,
+                                    left: buttonLeft,
+                                    top: buttonTop,
                                     child: Container(
                                       padding: const EdgeInsets.symmetric(
                                         horizontal: 8,
@@ -1160,72 +868,16 @@ class _TdGamePageState extends ConsumerState<TdGamePage> {
   }
 
   Future<bool?> _showQuitConfirmationDialog() async {
-    // Pause the game and countdown timer while showing dialog
     final sim = _game.sim;
-    final wasRunning = !sim.paused;
-    if (wasRunning) {
-      sim.togglePause();
-    }
-
-    // Pause the countdown timer (for game start countdown)
-    _game.pauseCountdown(true);
-
-    final result = await showDialog<bool>(
+    final wasPaused = sim.paused;
+    return showQuitConfirmation(
       context: context,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        backgroundColor: AppTheme.surface,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(AppTheme.radiusLarge),
-        ),
-        title: Text(
-          'Quit Game?',
-          style: GoogleFonts.nunito(
-            fontWeight: FontWeight.w700,
-            color: AppTheme.textPrimary,
-          ),
-        ),
-        content: Text(
-          'Are you sure you want to quit? Your progress will be lost.',
-          style: GoogleFonts.nunito(color: AppTheme.textSecondary),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: Text(
-              'Continue Playing',
-              style: GoogleFonts.nunito(
-                fontWeight: FontWeight.w600,
-                color: AppTheme.primary,
-              ),
-            ),
-          ),
-          TextButton(
-            onPressed: () {
-              // Stop all sounds
-              _game.soundService.stopAll();
-              Navigator.of(context).pop(true);
-            },
-            child: Text(
-              'Quit',
-              style: GoogleFonts.nunito(
-                fontWeight: FontWeight.w600,
-                color: AppTheme.coral,
-              ),
-            ),
-          ),
-        ],
-      ),
+      wasPaused: wasPaused,
+      pauseSim: sim.togglePause,
+      resumeSim: sim.togglePause,
+      pauseCountdown: () => _game.pauseCountdown(true),
+      resumeCountdown: () => _game.pauseCountdown(false),
+      stopAllSounds: () => _game.soundService.stopAll(),
     );
-
-    // Resume game and countdown if user chose to continue
-    if (result == false) {
-      _game.pauseCountdown(false);
-      if (wasRunning) {
-        sim.togglePause();
-      }
-    }
-
-    return result;
   }
 }

@@ -1,8 +1,8 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-import '../../game/td_simulation.dart';
 import '../app_theme.dart';
+import '../../game/entities/entities.dart';
 
 class HudItem extends StatelessWidget {
   final IconData icon;

@@ -1,8 +1,8 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-import '../../game/td_simulation.dart';
 import '../app_theme.dart';
+import '../../game/entities/tower.dart';
 
 class TowerStatsSheet extends StatelessWidget {
   final TdTower tower;
@@ -139,7 +139,7 @@ class TowerStatsSheet extends StatelessWidget {
             icon: Icons.social_distance_rounded,
             label: 'Range',
             value: '${tower.range} tiles',
-            progress: tower.range / 10, 
+            progress: tower.range / 10,
             color: AppTheme.skyBlue,
           ),
           const SizedBox(height: 12),
@@ -156,7 +156,7 @@ class TowerStatsSheet extends StatelessWidget {
             icon: Icons.timer_rounded,
             label: 'Cooldown',
             value: '${cooldownAvg.toStringAsFixed(2)}s',
-            progress: 1 - (cooldownAvg / 2).clamp(0, 1), 
+            progress: 1 - (cooldownAvg / 2).clamp(0, 1),
             color: AppTheme.secondary,
           ),
           const SizedBox(height: 24),
@@ -329,7 +329,7 @@ class StatChangeRow extends StatelessWidget {
   final String oldValue;
   final String newValue;
   final num change;
-  final bool isGoodIfHigher; 
+  final bool isGoodIfHigher;
 
   const StatChangeRow({
     super.key,

@@ -4,11 +4,16 @@ import 'package:flame/game.dart';
 import 'package:flame/events.dart';
 import 'package:flutter/material.dart';
 
+import '../core/interfaces/i_simulation.dart';
+import '../core/validators/input_validator.dart';
 import '../data/td_maps.dart';
 import '../data/td_random_maps.dart';
 import '../services/sound_service.dart';
+import 'game_utils.dart';
 import 'td_simulation.dart';
+import 'tower_manager.dart';
 import 'particle_system.dart';
+import 'entities/entities.dart';
 
 part 'game_renderer.dart';
 
@@ -162,6 +167,43 @@ class TdHudData {
   });
 }
 
+/// Main Flame game class for the tower defense game.
+///
+/// [TdGame] extends [FlameGame] and handles:
+/// - Game rendering (tile map, enemies, towers, missiles, particles)
+/// - User input (tap to place/select towers, drag UI interactions)
+/// - Game lifecycle (countdown, pause/resume, game over)
+/// - HUD updates with smart throttling (30 FPS max, only on changes)
+/// - Sound effects and particle systems
+/// - Tower placement validation with timeout confirmation
+///
+/// The game runs at a fixed 60Hz simulation timestep while rendering
+/// occurs at the display's refresh rate (e.g., 60Hz, 90Hz, 120Hz).
+/// This provides smooth visuals while maintaining consistent gameplay mechanics.
+///
+/// ## Architecture
+///
+/// The game logic is delegated to [TdSim] (simulation) which in turn uses:
+/// - [PathfindingService] for enemy path calculation
+/// - [EnemyManager] for enemy spawning and movement
+/// - [TowerManager] for tower combat and upgrades
+/// - [CollisionDetector] for missile collisions
+/// - [WaveManager] for wave progression
+///
+/// ## UI Integration
+///
+/// Flutter UI overlays communicate with the game through:
+/// - [hud] ValueNotifier for real-time HUD data
+/// - [selectionRevision] for tower selection state changes
+/// - [onHudUpdate] callback for external HUD rendering
+/// - [onGameOver] callback when game ends
+///
+/// ## Performance Optimizations
+///
+/// - HUD updates throttled to 30 FPS with change detection
+/// - Fixed timestep simulation (60Hz) decoupled from rendering
+/// - Spatial grid for O(1) enemy range queries
+/// - Cached BFS reachability for fast tower placement validation
 class TdGame extends FlameGame with TapCallbacks {
   final String mapKey;
   final TdGameSettings settings;
@@ -197,6 +239,12 @@ class TdGame extends FlameGame with TapCallbacks {
   int _countdownSeconds = 10;
   double _countdownAccum = 0;
   bool _countdownPaused = false; // Pause countdown for tutorial
+
+  // HUD update throttling - only update when values change or at most 30 FPS
+  TdHudData? _lastHudData;
+  double _hudUpdateAccumulator = 0.0;
+  static const double _hudUpdateInterval =
+      1.0 / 30.0; // Update HUD at most 30 FPS
 
   // Expose HUD for overlay widgets.
   final ValueNotifier<TdHudData> hud = ValueNotifier<TdHudData>(
@@ -250,7 +298,12 @@ class TdGame extends FlameGame with TapCallbacks {
     this.onSelectionRevision,
   }) : super();
 
-  TdSim get sim => _sim!;
+  /// Public sim accessor returns the [ISimulation] interface —
+  /// use this in UI code and tests to avoid depending on [TdSim] internals.
+  ISimulation get sim => _sim!;
+
+  /// Internal accessor retaining the full [TdSim] type for game-loop code.
+  TdSim get simConcrete => _sim!;
 
   // Sound and particle system accessors
   SoundService get soundService => _soundService;
@@ -260,19 +313,12 @@ class TdGame extends FlameGame with TapCallbacks {
   void setParticlesEnabled(bool enabled, {bool fromPrefs = false}) {
     _particlesEnabled = enabled;
     _particleSystem.setEnabled(enabled);
-    if (!fromPrefs) {
-      // If not from prefs, also update the service
-      _soundService.setEnabled(enabled);
-    }
+    // Note: Particles and sound are now independent - no cross-coupling
   }
 
   void setSoundsEnabled(bool enabled, {bool fromPrefs = false}) {
     _soundService.setEnabled(enabled);
-    if (!fromPrefs) {
-      // If not from prefs, also update particles
-      _particlesEnabled = enabled;
-      _particleSystem.setEnabled(enabled);
-    }
+    // Note: Sound and particles are now independent - no cross-coupling
   }
 
   /// Pause or resume the game start countdown (used for tutorial overlay)
@@ -308,6 +354,13 @@ class TdGame extends FlameGame with TapCallbacks {
   }
 
   Future<void> _loadMapAndInitSim() async {
+    // Validate mapKey to prevent injection attacks
+    if (!InputValidator.isValidMapKey(mapKey)) {
+      throw ArgumentError(
+        'Invalid map key: $mapKey. Map keys must be alphanumeric with underscores or hyphens, max 50 characters.',
+      );
+    }
+
     // Determine a "tile count" for random maps based on screen size, like JS `resizeMax()`.
     final colsEstimate = (size.x / 24).floor().clamp(10, 80);
     final rowsEstimate = (size.y / 24).floor().clamp(10, 80);
@@ -349,7 +402,7 @@ class TdGame extends FlameGame with TapCallbacks {
         healEffectTicks: _sim!.healEffectTicks,
         isBossWave: _sim!.isBossWave,
         towerCount: _sim!.towers.length,
-        maxTowers: TdSim.maxTowers,
+        maxTowers: TowerManager.maxTowers,
         maxTowersReached: _sim!.maxTowersReached,
       ),
     );
@@ -414,14 +467,26 @@ class TdGame extends FlameGame with TapCallbacks {
   bool setPendingTowerPosition(int col, int row) {
     if (_pendingTowerType == null) return false;
 
+    // Input validation - prevent out of bounds access
+    final sim = _sim;
+    if (sim == null) return false;
+
+    if (col < 0 ||
+        row < 0 ||
+        col >= sim.baseMap.cols ||
+        row >= sim.baseMap.rows) {
+      onPlacementFailed?.call('Invalid position');
+      return false;
+    }
+
     // Check tower limit
-    if (_sim!.towers.length >= TdSim.maxTowers) {
+    if (sim.towers.length >= TowerManager.maxTowers) {
       onPlacementFailed?.call('Max towers reached');
       return false;
     }
 
     // Check if enemy is on this tile
-    for (final e in _sim!.enemies) {
+    for (final e in sim.enemies) {
       if (e.gridCol == col && e.gridRow == row) {
         onPlacementFailed?.call('Enemy on this tile');
         return false;
@@ -429,20 +494,20 @@ class TdGame extends FlameGame with TapCallbacks {
     }
 
     // Check grid value
-    final g = _sim!.grid[col][row];
+    final g = sim.grid[col][row];
     if (g == 1 || g == 2 || g == 4) {
       onPlacementFailed?.call('Cannot place on obstacle');
       return false;
     }
 
     // Check if tile is empty
-    if (_sim!.hasTowerAt(col, row)) {
+    if (sim.hasTowerAt(col, row)) {
       onPlacementFailed?.call('Tower already here');
       return false;
     }
 
     // Check if path remains valid
-    if (!_sim!.placeable(col, row)) {
+    if (!sim.placeable(col, row)) {
       onPlacementFailed?.call('Would block enemy path');
       return false;
     }
@@ -505,6 +570,41 @@ class TdGame extends FlameGame with TapCallbacks {
     onSelectionRevision?.call();
   }
 
+  // Helper method to throttle HUD updates
+  void _updateHudIfChanged(TdHudData newData) {
+    // Always update during countdown (before game starts)
+    if (!_gameStarted) {
+      hud.value = newData;
+      _lastHudData = newData;
+      return;
+    }
+
+    // Throttle updates to at most 30 FPS
+    _hudUpdateAccumulator += 1.0 / 60.0; // Assume 60 FPS base
+    if (_hudUpdateAccumulator < _hudUpdateInterval) {
+      // Check if critical values changed (health, cash, wave, paused)
+      final mustUpdate =
+          newData.health != _lastHudData?.health ||
+          newData.cash != _lastHudData?.cash ||
+          newData.wave != _lastHudData?.wave ||
+          newData.paused != _lastHudData?.paused ||
+          newData.isBossWave != _lastHudData?.isBossWave ||
+          newData.isPlacingTower != _lastHudData?.isPlacingTower;
+
+      if (!mustUpdate) return;
+    }
+
+    if (_hudUpdateAccumulator >= _hudUpdateInterval) {
+      _hudUpdateAccumulator = 0.0;
+    }
+
+    // Only update if values actually changed
+    if (newData != _lastHudData) {
+      hud.value = newData;
+      _lastHudData = newData;
+    }
+  }
+
   // Cancel tower placement
   void cancelPendingTower() {
     _pendingTowerType = null;
@@ -565,8 +665,8 @@ class TdGame extends FlameGame with TapCallbacks {
           }
         }
       }
-      // Update HUD during countdown
-      onHudUpdate(
+      // Update HUD during countdown (always update before game starts)
+      _updateHudIfChanged(
         TdHudData(
           wave: sim.wave,
           health: sim.health,
@@ -584,7 +684,7 @@ class TdGame extends FlameGame with TapCallbacks {
           pendingTowerType: _pendingTowerType,
           placementTimeoutSeconds: _placementTimeout.ceil(),
           towerCount: sim.towers.length,
-          maxTowers: TdSim.maxTowers,
+          maxTowers: TowerManager.maxTowers,
           maxTowersReached: sim.maxTowersReached,
         ),
       );
@@ -593,12 +693,21 @@ class TdGame extends FlameGame with TapCallbacks {
 
     // Run fixed-step simulation at 60Hz (decoupled from rendering)
     // This saves battery while maintaining smooth visuals through interpolation
+    // Note: Rendering runs at display refresh rate (e.g., 120Hz on high-refresh displays)
+    // but simulation logic is locked to 60 FPS for consistent gameplay and battery efficiency
     if (!isPlacingTower) {
       _accum += dt;
       // Use 60Hz (1/60) instead of 120Hz (1/120) for better battery life
       const simTickRate = 1.0 / 60.0;
       while (_accum >= simTickRate) {
         _accum -= simTickRate;
+
+        // Don't continue simulation if game is over
+        if (_gameOver) {
+          sim.paused = true;
+          break;
+        }
+
         sim.step();
 
         if (!sim.paused) {
@@ -607,13 +716,14 @@ class TdGame extends FlameGame with TapCallbacks {
 
         if (sim.health <= 0 && !_gameOver) {
           _gameOver = true;
+          sim.paused = true; // Ensure simulation stops
           onGameOver(_bestWave);
           break;
         }
       }
     }
 
-    onHudUpdate(
+    _updateHudIfChanged(
       TdHudData(
         wave: sim.wave,
         health: sim.health,
@@ -631,7 +741,7 @@ class TdGame extends FlameGame with TapCallbacks {
         pendingTowerType: _pendingTowerType,
         placementTimeoutSeconds: _placementTimeout.ceil(),
         towerCount: sim.towers.length,
-        maxTowers: TdSim.maxTowers,
+        maxTowers: TowerManager.maxTowers,
         maxTowersReached: sim.maxTowersReached,
       ),
     );
@@ -647,93 +757,6 @@ class TdGame extends FlameGame with TapCallbacks {
     final map = _sim!.baseMap;
     final cols = map.cols;
     final rows = map.rows;
-
-    // Tile colors - updated to softer, more aesthetic palette
-    // We draw basic colored rectangles + grid lines; advanced shapes (corner
-    // geometry) are approximated by using the same road color.
-    // New softer colors
-    const road = Color(0xFFE8DCC4); // Soft beige/light brown for path
-    const grass = Color(0xFFB8E0D2); // Muted mint green
-    const towerTile = Color(0xFF7FD8BE); // Mint
-    const sidewalk = Color(0xFFD4D4E0); // Light gray
-    // Map theme colors - softer variants
-    const c0LightBrown = Color(0xFFE8DCC4);
-    const c0LightPurple = Color(0xFFC5B8E0);
-    const c0MediumPurple = Color(0xFF9D8EC4);
-    const c0DarkPurple = Color(0xFF7A6BA3);
-    const c0PaleGreen = Color(0xFFD4F1E0);
-    const c1DarkBlue = Color(0xFF4A5B8C);
-    const c1MediumBlue = Color(0xFF6B7FD7);
-    const c1LightBlue = Color(0xFF9BB5F0);
-    const c1DarkPurple = Color(0xFF7A6BA3);
-    const c1NeonPink = Color(0xFFFF8B9A);
-    const c2DarkRed = Color(0xFFC45B5B);
-    const c2NavyBlue = Color(0xFF4A5B8C);
-    const c2DarkBlue = Color(0xFF5B6BA3);
-    const c2PaleYellow = Color(0xFFFFF4D4);
-    const c2LightYellow = Color(0xFFFFE8B8);
-
-    Color tileColor(dynamic display, int gridValue) {
-      // Grid value 1 = wall (obstacle) - grey color
-      if (gridValue == 1) {
-        return const Color(0xFF555555); // Grey for obstacles
-      }
-      // Grid value 0 = empty/walkable - transparent/no color
-      if (gridValue == 0) {
-        return const Color(0x00000000); // Transparent for empty tiles
-      }
-      if (display == null) return const Color(0x00000000);
-      final s = display as String;
-      switch (s) {
-        case 'empty':
-          return const Color(0x00000000); // Transparent
-        case 'grass':
-          return grass;
-        case 'wall':
-          return const Color(0xFF555555); // Grey for walls
-        case 'tower':
-          return towerTile;
-        case 'sidewalk':
-          return sidewalk;
-        case 'road':
-          return road;
-        case 'lCorner':
-        case 'rCorner':
-          return road;
-        case 'c0_lightBrown':
-          return c0LightBrown;
-        case 'c0_lightPurple':
-          return c0LightPurple;
-        case 'c0_mediumPurple':
-          return c0MediumPurple;
-        case 'c0_darkPurple':
-          return c0DarkPurple;
-        case 'c0_paleGreen':
-          return c0PaleGreen;
-        case 'c1_darkBlue':
-          return c1DarkBlue;
-        case 'c1_mediumBlue':
-          return c1MediumBlue;
-        case 'c1_lightBlue':
-          return c1LightBlue;
-        case 'c1_darkPurple':
-          return c1DarkPurple;
-        case 'c1_neonPink':
-          return c1NeonPink;
-        case 'c2_darkRed':
-          return c2DarkRed;
-        case 'c2_navyBlue':
-          return c2NavyBlue;
-        case 'c2_darkBlue':
-          return c2DarkBlue;
-        case 'c2_paleYellow':
-          return c2PaleYellow;
-        case 'c2_lightYellow':
-          return c2LightYellow;
-        default:
-          return const Color(0x00000000); // Transparent by default
-      }
-    }
 
     // Compute pixel mapping for tile units.
     late final double tileW;
@@ -951,7 +974,7 @@ class TdGame extends FlameGame with TapCallbacks {
 
       // Draw HP bar(s) above enemy
       if (e.type.key == 'boss') {
-        // Boss has 3 HP bars (main + 2 extra)
+        // Boss has 2-3 HP bars depending on max health
         _drawBossHealthBars(canvas, e, cx, cy, r, tileSizeForRadius);
       } else {
         _drawHealthBar(canvas, e, cx, cy, r, tileSizeForRadius);

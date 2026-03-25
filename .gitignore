@@ -43,3 +43,19 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Security - Keystore and credentials (CRITICAL)
+*.jks
+*.keystore
+key.properties
+**/android/key.properties
+**/android/app/upload-keystore.jks
+**/android/app/*.jks
+**/android/app/*.keystore
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+secrets.json
+firebase_options.dart

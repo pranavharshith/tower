@@ -1,8 +1,8 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../game/td_game.dart';
-import '../game/td_simulation.dart';
+import '../game/entities/tower.dart';
 
-// ── HUD Data ────────────────────────────────────────────────────────────────
+// â”€â”€ HUD Data â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 final hudProvider = NotifierProvider<HudNotifier, TdHudData>(HudNotifier.new);
 
@@ -26,12 +26,11 @@ class HudNotifier extends Notifier<TdHudData> {
   }
 }
 
-// ── Placing Type (which tower the user is placing) ──────────────────────────
+// â”€â”€ Placing Type (which tower the user is placing) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-final placingTypeProvider =
-    NotifierProvider<PlacingTypeNotifier, TdTowerType?>(
-      PlacingTypeNotifier.new,
-    );
+final placingTypeProvider = NotifierProvider<PlacingTypeNotifier, TdTowerType?>(
+  PlacingTypeNotifier.new,
+);
 
 class PlacingTypeNotifier extends Notifier<TdTowerType?> {
   @override
@@ -40,7 +39,7 @@ class PlacingTypeNotifier extends Notifier<TdTowerType?> {
   void set(TdTowerType? t) => state = t;
 }
 
-// ── Selection Revision counter (forces rebuild on selection change) ──────────
+// â”€â”€ Selection Revision counter (forces rebuild on selection change) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 final selectionRevisionProvider =
     NotifierProvider<SelectionRevisionNotifier, int>(

@@ -6,8 +6,9 @@ import 'package:flutter_tower/ui/widgets/game_hud_widgets.dart';
 
 void main() {
   group('HudItem Widget Tests', () {
-    testWidgets('Displays text and values correctly when showLabel is true',
-        (WidgetTester tester) async {
+    testWidgets('Displays text and values correctly when showLabel is true', (
+      WidgetTester tester,
+    ) async {
       await tester.pumpWidget(
         const ProviderScope(
           child: MaterialApp(
@@ -29,8 +30,9 @@ void main() {
       expect(find.byType(Icon), findsOneWidget);
     });
 
-    testWidgets('Hides label text when showLabel is false',
-        (WidgetTester tester) async {
+    testWidgets('Hides label text when showLabel is false', (
+      WidgetTester tester,
+    ) async {
       await tester.pumpWidget(
         const ProviderScope(
           child: MaterialApp(

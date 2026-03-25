@@ -1,12 +1,12 @@
-import 'dart:math';
+﻿import 'dart:math';
 
 import 'package:flutter_test/flutter_test.dart';
-
+import 'package:flutter_tower/core/interfaces/i_sound_service.dart';
 import 'package:flutter_tower/data/td_maps.dart';
-import 'package:flutter_tower/services/sound_service.dart';
 import 'package:flutter_tower/game/td_simulation.dart';
+import 'package:flutter_tower/game/entities/entities.dart';
 
-class MockSoundService implements SoundService {
+class MockSoundService implements ISoundService {
   @override
   bool get isEnabled => false;
   @override

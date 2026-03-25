@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:lzstring/lzstring.dart';
+import '../core/validators/input_validator.dart';
 
 /// Compressed premade maps copied from:
 /// `towerdefense/scripts/maps.js` (maps.&lt;key&gt; = toMap('&lt;base64&gt;');)
@@ -60,10 +61,20 @@ class TdMaps {
 
   bool isPremadeKey(String key) => _premade.containsKey(key);
 
+  /// Validates map key input
+  static bool isValidMapKey(String? key) {
+    return InputValidator.isValidMapKey(key);
+  }
+
   /// Decodes one of the 7 premade maps from `maps.js`.
   ///
-  /// Throws `ArgumentError` if [key] isn't premade.
+  /// Throws `ArgumentError` if [key] isn't premade or invalid.
   TdMapData loadPremade(String key) {
+    // Input validation
+    if (!isValidMapKey(key)) {
+      throw ArgumentError('Invalid map key format: $key');
+    }
+
     final base64 = _premade[key];
     if (base64 == null) {
       throw ArgumentError('Unknown premade map key: $key');
