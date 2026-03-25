@@ -177,8 +177,7 @@ class EnemyManager {
     final centerCol = cx.floor();
     final centerRow = cy.floor();
 
-    bool foundInSpatialGrid = false;
-
+    // OPTIMIZATION: Removed fallback linear scan - spatial grid is always populated
     // Check tiles within radius
     for (int dc = -radiusTiles; dc <= radiusTiles; dc++) {
       for (int dr = -radiusTiles; dr <= radiusTiles; dr++) {
@@ -191,24 +190,11 @@ class EnemyManager {
 
         // Check enemies in this tile
         for (final e in _spatialGrid._grid[col][row]) {
-          foundInSpatialGrid = true;
           final dx = e.posX - cx;
           final dy = e.posY - cy;
           if (dx * dx + dy * dy <= r2) {
             res.add(e);
           }
-        }
-      }
-    }
-
-    // Fallback to linear scan if spatial grid didn't find anything
-    // (for backward compatibility or edge cases)
-    if (!foundInSpatialGrid) {
-      for (final e in enemies) {
-        final dx = e.posX - cx;
-        final dy = e.posY - cy;
-        if (dx * dx + dy * dy <= r2) {
-          res.add(e);
         }
       }
     }
@@ -231,8 +217,7 @@ class EnemyManager {
     final centerRow = cy.floor();
     final radiusTiles = r.ceil();
 
-    bool foundInSpatialGrid = false;
-
+    // OPTIMIZATION: Removed fallback linear scan - spatial grid is always populated
     // Check tiles within radius
     for (int dc = -radiusTiles; dc <= radiusTiles; dc++) {
       for (int dr = -radiusTiles; dr <= radiusTiles; dr++) {
@@ -245,23 +230,12 @@ class EnemyManager {
 
         // Check enemies in this tile
         for (final e in _spatialGrid._grid[col][row]) {
-          foundInSpatialGrid = true;
           final dx = e.posX - cx;
           final dy = e.posY - cy;
           if (dx * dx + dy * dy < r2) {
             res.add(e);
           }
         }
-      }
-    }
-
-    // Fallback to linear scan if spatial grid didn't find anything
-    // (for backward compatibility or edge cases)
-    if (!foundInSpatialGrid) {
-      for (final e in enemies) {
-        final dx = e.posX - cx;
-        final dy = e.posY - cy;
-        if (dx * dx + dy * dy < r2) res.add(e);
       }
     }
 

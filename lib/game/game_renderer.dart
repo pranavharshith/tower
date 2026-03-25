@@ -84,19 +84,16 @@ extension GameRenderer on TdGame {
       paint,
     );
 
-    // Tank barrel
-    final barrelPaint = Paint()
-      ..color = const Color(0xFF95A5A6)
-      ..style = PaintingStyle.fill;
+    // Tank barrel - reuse greyFill
     final barrelWidth = r * 0.15;
     final barrelLength = r * 0.7;
     canvas.drawRect(
       Rect.fromLTRB(0, -barrelWidth, barrelLength, barrelWidth),
-      barrelPaint,
+      GamePaints.greyFill,
     );
 
     // Center circle
-    canvas.drawCircle(Offset.zero, r * 0.2, barrelPaint);
+    canvas.drawCircle(Offset.zero, r * 0.2, GamePaints.greyFill);
 
     canvas.restore();
   }
@@ -116,18 +113,14 @@ extension GameRenderer on TdGame {
     );
     canvas.drawRect(rect, paint);
 
-    // Inner squares (orange)
-    final innerPaint = Paint()
-      ..color = const Color(0xFFE87E04)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2;
+    // Inner squares (orange) - reuse tauntInner paint
     canvas.drawRect(
       Rect.fromCenter(center: Offset(cx, cy), width: r * 1.2, height: r * 1.2),
-      innerPaint,
+      GamePaints.tauntInner,
     );
     canvas.drawRect(
       Rect.fromCenter(center: Offset(cx, cy), width: r * 0.8, height: r * 0.8),
-      innerPaint,
+      GamePaints.tauntInner,
     );
   }
 
@@ -150,67 +143,61 @@ extension GameRenderer on TdGame {
   }
 
   void _drawBossHorns(Canvas canvas, double r) {
-    final hornPaint = Paint()
-      ..color = const Color(0xFFFF0000)
-      ..style = PaintingStyle.fill;
-
     final leftHornPath = Path()
       ..moveTo(-r * 0.4, -r * 0.6)
       ..quadraticBezierTo(-r * 0.7, -r * 1.3, -r * 0.3, -r * 1.1)
       ..quadraticBezierTo(-r * 0.5, -r * 0.8, -r * 0.4, -r * 0.6)
       ..close();
-    canvas.drawPath(leftHornPath, hornPaint);
+    canvas.drawPath(leftHornPath, GamePaints.bossHorn);
 
     final rightHornPath = Path()
       ..moveTo(r * 0.4, -r * 0.6)
       ..quadraticBezierTo(r * 0.7, -r * 1.3, r * 0.3, -r * 1.1)
       ..quadraticBezierTo(r * 0.5, -r * 0.8, r * 0.4, -r * 0.6)
       ..close();
-    canvas.drawPath(rightHornPath, hornPaint);
+    canvas.drawPath(rightHornPath, GamePaints.bossHorn);
   }
 
   void _drawBossFace(Canvas canvas, double r) {
-    final eyeWhitePaint = Paint()
-      ..color = const Color(0xFFFFFFFF)
-      ..style = PaintingStyle.fill;
-
-    canvas.drawCircle(Offset(-r * 0.35, -r * 0.1), r * 0.2, eyeWhitePaint);
-    canvas.drawCircle(Offset(r * 0.35, -r * 0.1), r * 0.2, eyeWhitePaint);
-
-    final browPaint = Paint()
-      ..color = const Color(0xFF000000)
-      ..strokeWidth = 2
-      ..style = PaintingStyle.stroke;
+    canvas.drawCircle(
+      Offset(-r * 0.35, -r * 0.1),
+      r * 0.2,
+      GamePaints.whiteFill,
+    );
+    canvas.drawCircle(
+      Offset(r * 0.35, -r * 0.1),
+      r * 0.2,
+      GamePaints.whiteFill,
+    );
 
     canvas.drawPath(
       Path()
         ..moveTo(-r * 0.5, -r * 0.25)
         ..lineTo(-r * 0.2, -r * 0.15),
-      browPaint,
+      GamePaints.bossBrow,
     );
     canvas.drawPath(
       Path()
         ..moveTo(r * 0.5, -r * 0.25)
         ..lineTo(r * 0.2, -r * 0.15),
-      browPaint,
+      GamePaints.bossBrow,
     );
 
-    final pupilPaint = Paint()
-      ..color = const Color(0xFFFF0000)
-      ..style = PaintingStyle.fill;
-    canvas.drawCircle(Offset(-r * 0.35, -r * 0.1), r * 0.1, pupilPaint);
-    canvas.drawCircle(Offset(r * 0.35, -r * 0.1), r * 0.1, pupilPaint);
+    canvas.drawCircle(
+      Offset(-r * 0.35, -r * 0.1),
+      r * 0.1,
+      GamePaints.bossPupil,
+    );
+    canvas.drawCircle(
+      Offset(r * 0.35, -r * 0.1),
+      r * 0.1,
+      GamePaints.bossPupil,
+    );
 
     final mouthPath = Path()
       ..moveTo(-r * 0.4, r * 0.3)
       ..quadraticBezierTo(0, r * 0.6, r * 0.4, r * 0.3);
-    canvas.drawPath(
-      mouthPath,
-      Paint()
-        ..color = const Color(0xFF8B0000)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 2,
-    );
+    canvas.drawPath(mouthPath, GamePaints.bossMouth);
   }
 
   void _drawBossCrown(Canvas canvas, double r) {
@@ -221,12 +208,7 @@ extension GameRenderer on TdGame {
       ..lineTo(r * 0.25, -r * 1.2)
       ..lineTo(r * 0.5, -r * 0.8)
       ..close();
-    canvas.drawPath(
-      crownPath,
-      Paint()
-        ..color = const Color(0xFFFFD700)
-        ..style = PaintingStyle.fill,
-    );
+    canvas.drawPath(crownPath, GamePaints.bossCrown);
   }
 
   void _drawHealthBar(
@@ -319,22 +301,10 @@ extension GameRenderer on TdGame {
       }
     }
 
-    // Draw "BOSS" text above bars
-    final textPainter = TextPainter(
-      text: TextSpan(
-        text: 'BOSS',
-        style: TextStyle(
-          color: const Color(0xFFFF00FF),
-          fontSize: r * 0.8,
-          fontWeight: FontWeight.bold,
-        ),
-      ),
-      textDirection: TextDirection.ltr,
-    );
-    textPainter.layout();
-    textPainter.paint(
+    // Use cached TextPainter instead of creating new one each frame
+    GamePaints.bossText.paint(
       canvas,
-      Offset(cx - textPainter.width / 2, cy - r - barHeight * 4 - 10),
+      Offset(cx - GamePaints.bossText.width / 2, cy - r - barHeight * 4 - 10),
     );
   }
 
@@ -365,40 +335,23 @@ extension GameRenderer on TdGame {
 
     // Draw base (if not sniper/tesla which have no base)
     if (!t.towerType.isSniper && !t.towerType.isTesla) {
-      final basePaint = Paint()
-        ..color = Color.fromARGB(255, t.color[0], t.color[1], t.color[2])
-        ..style = PaintingStyle.fill;
-      canvas.drawCircle(Offset.zero, r, basePaint);
-
-      // Border
-      canvas.drawCircle(
-        Offset.zero,
-        r,
-        Paint()
-          ..color = const Color(0xFF000000)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 1,
+      // Reuse fill paint instead of creating new one
+      GamePaints.fill.color = Color.fromARGB(
+        255,
+        t.color[0],
+        t.color[1],
+        t.color[2],
       );
+      canvas.drawCircle(Offset.zero, r, GamePaints.fill);
+
+      // Border - reuse stroke paint
+      canvas.drawCircle(Offset.zero, r, GamePaints.blackStroke1);
     }
 
     // Visual indicator for upgraded towers - golden ring
     if (t.upgraded) {
-      canvas.drawCircle(
-        Offset.zero,
-        r * 1.1,
-        Paint()
-          ..color = const Color(0xFFFFD700)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 2,
-      );
-      canvas.drawCircle(
-        Offset.zero,
-        r * 1.15,
-        Paint()
-          ..color = const Color(0x40FFD700)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 1,
-      );
+      canvas.drawCircle(Offset.zero, r * 1.1, GamePaints.goldStroke2);
+      canvas.drawCircle(Offset.zero, r * 1.15, GamePaints.goldStroke1Glow);
     }
 
     canvas.rotate(angle);
@@ -408,18 +361,13 @@ extension GameRenderer on TdGame {
   }
 
   void _drawTowerBarrel(Canvas canvas, TdTower t, double r, double tileSize) {
-    final barrelPaint = Paint()
-      ..color = Color.fromARGB(
-        255,
-        t.secondary[0],
-        t.secondary[1],
-        t.secondary[2],
-      )
-      ..style = PaintingStyle.fill;
-    final borderPaint = Paint()
-      ..color = const Color(0xFF000000)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1;
+    // Reuse fill paint instead of creating new ones
+    GamePaints.fill.color = Color.fromARGB(
+      255,
+      t.secondary[0],
+      t.secondary[1],
+      t.secondary[2],
+    );
 
     switch (t.towerType) {
       case TdTowerType.gun:
@@ -427,11 +375,11 @@ extension GameRenderer on TdGame {
           canvas,
           r * 0.8,
           r * 0.3,
-          barrelPaint,
-          borderPaint,
+          GamePaints.fill,
+          GamePaints.blackStroke1,
         );
       case TdTowerType.sniper:
-        _drawTriangleBarrel(canvas, t, r, borderPaint);
+        _drawTriangleBarrel(canvas, t, r, GamePaints.blackStroke1);
       case TdTowerType.rocket:
         _drawDoubleBarrel(canvas, r);
       case TdTowerType.tesla:
@@ -443,8 +391,8 @@ extension GameRenderer on TdGame {
           canvas,
           r * 0.7,
           r * 0.25,
-          barrelPaint,
-          borderPaint,
+          GamePaints.fill,
+          GamePaints.blackStroke1,
         );
     }
   }
@@ -476,21 +424,29 @@ extension GameRenderer on TdGame {
       ..lineTo(back, side)
       ..lineTo(front, 0)
       ..close();
-    canvas.drawPath(
-      path,
-      Paint()..color = Color.fromARGB(255, t.color[0], t.color[1], t.color[2]),
+    // Reuse fill paint
+    GamePaints.fill.color = Color.fromARGB(
+      255,
+      t.color[0],
+      t.color[1],
+      t.color[2],
     );
+    canvas.drawPath(path, GamePaints.fill);
     canvas.drawPath(path, borderPaint);
   }
 
   void _drawDoubleBarrel(Canvas canvas, double r) {
-    final barrelPaint = Paint()
-      ..color = const Color(0xFF95A5A6)
-      ..style = PaintingStyle.fill;
+    // Reuse greyFill paint
     final width = r * 0.15;
     final length = r * 0.6;
-    canvas.drawRect(Rect.fromLTRB(0, -width * 2, length, -width), barrelPaint);
-    canvas.drawRect(Rect.fromLTRB(0, width, length, width * 2), barrelPaint);
+    canvas.drawRect(
+      Rect.fromLTRB(0, -width * 2, length, -width),
+      GamePaints.greyFill,
+    );
+    canvas.drawRect(
+      Rect.fromLTRB(0, width, length, width * 2),
+      GamePaints.greyFill,
+    );
     canvas.drawRect(
       Rect.fromLTRB(length, -width * 3, length + width, width * 3),
       GamePaints.healthFill,
@@ -498,23 +454,22 @@ extension GameRenderer on TdGame {
   }
 
   void _drawTeslaCore(Canvas canvas, TdTower t, double r) {
-    _drawPolygon(
-      canvas,
-      6,
-      r * 0.5,
-      Paint()
-        ..color = Color.fromARGB(
-          255,
-          t.secondary[0],
-          t.secondary[1],
-          t.secondary[2],
-        ),
+    // Reuse fill paint
+    GamePaints.fill.color = Color.fromARGB(
+      255,
+      t.secondary[0],
+      t.secondary[1],
+      t.secondary[2],
     );
-    canvas.drawCircle(
-      Offset.zero,
-      r * 0.55,
-      Paint()..color = Color.fromARGB(255, t.color[0], t.color[1], t.color[2]),
+    _drawPolygon(canvas, 6, r * 0.5, GamePaints.fill);
+
+    GamePaints.fill.color = Color.fromARGB(
+      255,
+      t.color[0],
+      t.color[1],
+      t.color[2],
     );
+    canvas.drawCircle(Offset.zero, r * 0.55, GamePaints.fill);
   }
 
   void _drawPolygon(Canvas canvas, int sides, double radius, Paint paint) {
@@ -531,12 +486,6 @@ extension GameRenderer on TdGame {
     }
     path.close();
     canvas.drawPath(path, paint);
-    canvas.drawPath(
-      path,
-      Paint()
-        ..color = const Color(0xFF000000)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1,
-    );
+    canvas.drawPath(path, GamePaints.blackStroke1);
   }
 }

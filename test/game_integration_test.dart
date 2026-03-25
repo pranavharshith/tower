@@ -97,12 +97,22 @@ void main() {
       );
 
       sim.startGame();
-      sim.health = 1;
-      sim.paused = false;
-      sim.nextWave();
+      sim.health = 1; // Set to 1 so first enemy reaching exit causes game over
 
-      // Let enemies reach exit
-      for (int i = 0; i < 10000; i++) {
+      // Place enemy directly at the exit to trigger game over immediately
+      final exit = sim.baseMap.exit;
+      final enemy = TdEnemy(
+        posX: exit.x + 0.5,
+        posY: exit.y + 0.5,
+        type: enemyTypes['weak']!,
+        rng: sim.rng,
+      );
+      sim.enemies.add(enemy);
+
+      sim.paused = false;
+
+      // Run one step - enemy should be detected at exit and deal damage
+      for (int i = 0; i < 10; i++) {
         sim.step();
         if (sim.health <= 0) break;
       }

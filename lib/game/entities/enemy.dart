@@ -44,6 +44,16 @@ class TdEnemy {
   late final double riskTolerance;
   late final double explorationBias;
 
+  // OPTIMIZATION: Cache direction to reduce pathfinding calculations
+  int _cachedDirection = 0;
+  int _directionCacheFrames = 0;
+  static const int _directionCacheDuration = 3; // Cache for 3 frames
+
+  // OPTIMIZATION: Throttle medic healing queries (every 10 frames instead of every frame)
+  int _medicHealFrames = 0;
+  static const int _medicHealInterval =
+      10; // Heal every 10 frames (~6 times/sec)
+
   TdEnemy({
     required this.posX,
     required this.posY,
@@ -124,13 +134,18 @@ class TdEnemy {
     _statusManager.update(dt);
     _processTicks(sim, dt);
 
+    // OPTIMIZATION: Throttle medic healing to every 10 frames instead of every frame
     if (type.medicTick) {
-      final affected = sim.enemiesInExplosionRange(posX, posY, 2) as List;
-      for (final other in affected) {
-        (other as TdEnemy).applyEffectSeconds(
-          'regen',
-          GameConstants.regenDurationSeconds,
-        );
+      _medicHealFrames++;
+      if (_medicHealFrames >= _medicHealInterval) {
+        _medicHealFrames = 0;
+        final affected = sim.enemiesInExplosionRange(posX, posY, 2.0) as List;
+        for (final other in affected) {
+          (other as TdEnemy).applyEffectSeconds(
+            'regen',
+            GameConstants.regenDurationSeconds,
+          );
+        }
       }
     }
     if (type.key == 'boss') {
@@ -192,6 +207,12 @@ class TdEnemy {
 
   // Returns direction: 1=left 2=up 3=right 4=down 0=none
   int _chooseDirection(dynamic sim) {
+    // OPTIMIZATION: Use cached direction if still valid
+    if (_directionCacheFrames > 0) {
+      _directionCacheFrames--;
+      return _cachedDirection;
+    }
+
     final col = gridCol;
     final row = gridRow;
     final cols = sim.baseMap.cols as int;
@@ -242,7 +263,11 @@ class TdEnemy {
         bestIndex = i;
       }
     }
-    return optimalDirs[bestIndex];
+
+    // Cache the chosen direction
+    _cachedDirection = optimalDirs[bestIndex];
+    _directionCacheFrames = _directionCacheDuration;
+    return _cachedDirection;
   }
 
   void _setVelocityFromDirection(int dir, double velocity) {

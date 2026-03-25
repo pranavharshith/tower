@@ -12,6 +12,7 @@ class Particle extends Component {
   final double decayRate;
   double currentLifetime;
   bool isDead;
+  final Paint _paint = Paint()..style = PaintingStyle.fill;
 
   Particle({
     required this.position,
@@ -52,11 +53,10 @@ class Particle extends Component {
 
     // Calculate alpha based on remaining lifetime
     final alpha = 1.0 - (currentLifetime / lifetime);
-    final paint = Paint()
-      ..color = color.withValues(alpha: alpha)
-      ..style = PaintingStyle.fill;
+    // Reuse paint object instead of creating new one each frame
+    _paint.color = color.withValues(alpha: alpha);
 
-    canvas.drawCircle(Offset(position.x, position.y), radius, paint);
+    canvas.drawCircle(Offset(position.x, position.y), radius, _paint);
   }
 }
 

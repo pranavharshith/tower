@@ -7,7 +7,6 @@ import 'package:encrypt/encrypt.dart' as encrypt_lib;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
-import '../models/map_key.dart';
 import 'logger.dart';
 
 /// Persistent preferences storage with AES-256 encryption.
@@ -130,7 +129,7 @@ class TdPrefs {
     }
 
     _derivedKey = encrypt_lib.Key(Uint8List.fromList(derivedBytes));
-    AppLogger.d('Encryption initialized with ${iterations} iterations');
+    AppLogger.d('Encryption initialized with $iterations iterations');
   }
 
   /// Must be called during app initialization to load secure data into memory

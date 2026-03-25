@@ -82,6 +82,11 @@ void main() {
               continue; // No valid path tile found, try next tower position
             }
 
+            // CRITICAL: Update spatial grid before tower targeting
+            sim.paused = false;
+            sim.step();
+            sim.paused = true;
+
             tower.cd = 0; // Ready to fire
 
             final missilesBefore = sim.missiles.length;
@@ -149,6 +154,11 @@ void main() {
             );
 
             sim.enemies.addAll([weakEnemy, strongEnemy]);
+
+            // CRITICAL: Update spatial grid before tower targeting
+            sim.paused = false;
+            sim.step();
+            sim.paused = true;
 
             tower.cd = 0;
             tower.tryFire(sim);
@@ -224,6 +234,11 @@ void main() {
             }
 
             sim.enemies.addAll(enemies);
+
+            // CRITICAL: Update spatial grid before tower targeting
+            sim.paused = false;
+            sim.step();
+            sim.paused = true;
 
             tower.cd = 0;
             final missilesBefore = sim.missiles.length;

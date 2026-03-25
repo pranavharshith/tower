@@ -48,7 +48,6 @@ class GameState {
   /// Health is clamped to [0, maxHealth] range to prevent negative values.
   /// Returns true if this damage caused game over.
   bool takeDamage(int damage) {
-    final oldHealth = health;
     health = (health - damage).clamp(0, maxHealth);
 
     // Ensure health never goes below zero (extra safety)

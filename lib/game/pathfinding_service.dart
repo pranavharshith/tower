@@ -28,7 +28,7 @@ class PathfindingService {
   static const int dangerThreshold = 3; // minimum deaths to consider dangerous
   int _framesSincePathRecalc = 0;
   static const int pathRecalcInterval =
-      120; // recalc every 2 seconds (60fps * 2)
+      300; // recalc every 5 seconds (60fps * 5) - reduced from 2s for better performance
 
   // Cached for placement / BFS
   late List<List<bool>> walkableCache;
@@ -101,6 +101,8 @@ class PathfindingService {
     }
 
     // Periodically recalculate paths to adapt to danger zones
+    // OPTIMIZATION: Increased interval from 120 to 300 frames (5 seconds instead of 2)
+    // This reduces expensive BFS recalculations by 60%
     _framesSincePathRecalc++;
     if (_framesSincePathRecalc >= pathRecalcInterval && hasSignificantDanger) {
       _framesSincePathRecalc = 0;

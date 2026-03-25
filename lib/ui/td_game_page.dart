@@ -475,8 +475,8 @@ class _TdGamePageState extends ConsumerState<TdGamePage> {
                 Expanded(
                   child: Stack(
                     children: [
-                      // Game Canvas
-                      GameWidget(game: _game),
+                      // Game Canvas - RepaintBoundary isolates game rendering from UI rebuilds
+                      RepaintBoundary(child: GameWidget(game: _game)),
                       // Overlay messages and placement UI inside game area
                       // "Tap to place" message (shows for 3 seconds when tower selected)
                       ValueListenableBuilder<int>(
@@ -771,72 +771,64 @@ class _TdGamePageState extends ConsumerState<TdGamePage> {
                         // Tower List
                         SizedBox(
                           height: 90,
-                          child: ValueListenableBuilder<TdHudData>(
-                            valueListenable: _game.hud,
-                            builder: (context, hud, _) {
-                              return ValueListenableBuilder<int>(
-                                valueListenable: _game.selectionRevision,
-                                builder: (context, _, __) {
-                                  final placing = _game.placingType;
-                                  final selected = _game.selectedTower;
+                          child: ValueListenableBuilder<int>(
+                            valueListenable: _game.selectionRevision,
+                            builder: (context, _, __) {
+                              final placing = _game.placingType;
+                              final selected = _game.selectedTower;
+                              // Read HUD once per rebuild instead of nested listener
+                              final hud = _game.hud.value;
 
-                                  return ListView.builder(
-                                    scrollDirection: Axis.horizontal,
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 12,
+                              return ListView.builder(
+                                scrollDirection: Axis.horizontal,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                ),
+                                itemCount: towerTypes.length,
+                                itemBuilder: (context, index) {
+                                  final key = towerTypes.keys.elementAt(index);
+                                  final t = towerTypes[key]!;
+                                  final isActive =
+                                      placing?.key == t.key ||
+                                      selected?.towerType.key == t.key;
+                                  final canAfford = hud.cash >= t.cost;
+                                  final maxedOut = hud.maxTowersReached;
+
+                                  return Padding(
+                                    padding: const EdgeInsets.only(right: 10),
+                                    child: TowerStoreItem(
+                                      towerType: t,
+                                      isActive: isActive,
+                                      isDisabled: !canAfford || maxedOut,
+                                      onTap: () {
+                                        if (maxedOut) {
+                                          // Show max towers message
+                                          ScaffoldMessenger.of(
+                                            context,
+                                          ).showSnackBar(
+                                            SnackBar(
+                                              content: Text(
+                                                'Max towers reached (${hud.towerCount}/${hud.maxTowers}). Upgrade or sell existing towers.',
+                                                style: GoogleFonts.nunito(),
+                                              ),
+                                              backgroundColor: AppTheme.error,
+                                              duration: const Duration(
+                                                seconds: 2,
+                                              ),
+                                            ),
+                                          );
+                                          return;
+                                        }
+
+                                        // Toggle: If same tower is already selected, deselect it
+                                        if (placing?.key == t.key) {
+                                          _game.cancelPendingTower();
+                                        } else {
+                                          _game.startPlacingTower(t);
+                                          _updateTapToPlaceMessage(t);
+                                        }
+                                      },
                                     ),
-                                    itemCount: towerTypes.length,
-                                    itemBuilder: (context, index) {
-                                      final key = towerTypes.keys.elementAt(
-                                        index,
-                                      );
-                                      final t = towerTypes[key]!;
-                                      final isActive =
-                                          placing?.key == t.key ||
-                                          selected?.towerType.key == t.key;
-                                      final canAfford = hud.cash >= t.cost;
-                                      final maxedOut = hud.maxTowersReached;
-
-                                      return Padding(
-                                        padding: const EdgeInsets.only(
-                                          right: 10,
-                                        ),
-                                        child: TowerStoreItem(
-                                          towerType: t,
-                                          isActive: isActive,
-                                          isDisabled: !canAfford || maxedOut,
-                                          onTap: () {
-                                            if (maxedOut) {
-                                              // Show max towers message
-                                              ScaffoldMessenger.of(
-                                                context,
-                                              ).showSnackBar(
-                                                SnackBar(
-                                                  content: Text(
-                                                    'Max towers reached (${hud.towerCount}/${hud.maxTowers}). Upgrade or sell existing towers.',
-                                                    style: GoogleFonts.nunito(),
-                                                  ),
-                                                  backgroundColor:
-                                                      AppTheme.error,
-                                                  duration: const Duration(
-                                                    seconds: 2,
-                                                  ),
-                                                ),
-                                              );
-                                              return;
-                                            }
-
-                                            // Toggle: If same tower is already selected, deselect it
-                                            if (placing?.key == t.key) {
-                                              _game.cancelPendingTower();
-                                            } else {
-                                              _game.startPlacingTower(t);
-                                              _updateTapToPlaceMessage(t);
-                                            }
-                                          },
-                                        ),
-                                      );
-                                    },
                                   );
                                 },
                               );

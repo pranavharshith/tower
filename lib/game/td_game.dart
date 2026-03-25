@@ -165,6 +165,51 @@ class TdHudData {
     this.maxTowers = 21,
     this.maxTowersReached = false,
   });
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is TdHudData &&
+          runtimeType == other.runtimeType &&
+          wave == other.wave &&
+          health == other.health &&
+          maxHealth == other.maxHealth &&
+          cash == other.cash &&
+          paused == other.paused &&
+          healAmount == other.healAmount &&
+          healEffectTicks == other.healEffectTicks &&
+          isBossWave == other.isBossWave &&
+          gameStarted == other.gameStarted &&
+          countdownSeconds == other.countdownSeconds &&
+          isPlacingTower == other.isPlacingTower &&
+          pendingTowerCol == other.pendingTowerCol &&
+          pendingTowerRow == other.pendingTowerRow &&
+          pendingTowerType == other.pendingTowerType &&
+          placementTimeoutSeconds == other.placementTimeoutSeconds &&
+          towerCount == other.towerCount &&
+          maxTowers == other.maxTowers &&
+          maxTowersReached == other.maxTowersReached;
+
+  @override
+  int get hashCode =>
+      wave.hashCode ^
+      health.hashCode ^
+      maxHealth.hashCode ^
+      cash.hashCode ^
+      paused.hashCode ^
+      healAmount.hashCode ^
+      healEffectTicks.hashCode ^
+      isBossWave.hashCode ^
+      gameStarted.hashCode ^
+      countdownSeconds.hashCode ^
+      isPlacingTower.hashCode ^
+      pendingTowerCol.hashCode ^
+      pendingTowerRow.hashCode ^
+      pendingTowerType.hashCode ^
+      placementTimeoutSeconds.hashCode ^
+      towerCount.hashCode ^
+      maxTowers.hashCode ^
+      maxTowersReached.hashCode;
 }
 
 /// Main Flame game class for the tower defense game.
@@ -899,21 +944,15 @@ class TdGame extends FlameGame with TapCallbacks {
       if (shouldShowRange) {
         // Range in pixels = range in tiles * tile size
         final rangeRadius = t.range * tileSizeForRadius;
-        canvas.drawCircle(
-          Offset(cx, cy),
-          rangeRadius,
-          Paint()
-            ..color = Color.fromARGB(63, t.color[0], t.color[1], t.color[2])
-            ..style = PaintingStyle.fill,
+        // Reuse fill paint for range circle
+        GamePaints.fill.color = Color.fromARGB(
+          63,
+          t.color[0],
+          t.color[1],
+          t.color[2],
         );
-        canvas.drawCircle(
-          Offset(cx, cy),
-          rangeRadius,
-          Paint()
-            ..color = const Color(0xFFFFFFFF)
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = 1,
-        );
+        canvas.drawCircle(Offset(cx, cy), rangeRadius, GamePaints.fill);
+        canvas.drawCircle(Offset(cx, cy), rangeRadius, GamePaints.whiteStroke1);
       }
 
       // Draw tower with barrel/base like towerdefense
@@ -921,14 +960,7 @@ class TdGame extends FlameGame with TapCallbacks {
 
       // If selected tower, show a slightly larger outline.
       if (t == selectedTower) {
-        canvas.drawCircle(
-          Offset(cx, cy),
-          r * 1.15,
-          Paint()
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = 2
-            ..color = const Color(0xFFFFFFFF),
-        );
+        canvas.drawCircle(Offset(cx, cy), r * 1.15, GamePaints.whiteStroke2);
       }
     }
 
@@ -941,18 +973,13 @@ class TdGame extends FlameGame with TapCallbacks {
           : const Color(0xFFFF69B4); // Hot pink for normal spawn point
 
       // Draw square spawn point (same shape as player's green base)
-      canvas.drawRect(
-        Rect.fromLTWH(left, top, tileW, tileH),
-        GamePaints.fill..color = color,
-      );
+      GamePaints.fill.color = color;
+      canvas.drawRect(Rect.fromLTWH(left, top, tileW, tileH), GamePaints.fill);
 
-      // Draw outline
+      // Draw outline - reuse whiteStroke2
       canvas.drawRect(
         Rect.fromLTWH(left, top, tileW, tileH),
-        Paint()
-          ..color = const Color(0xFFFFFFFF)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 2,
+        GamePaints.whiteStroke2,
       );
     }
 
@@ -961,16 +988,16 @@ class TdGame extends FlameGame with TapCallbacks {
       final cx = originX + e.posX * tileW;
       final cy = originY + e.posY * tileH;
       final r = e.type.radiusTiles * tileSizeForRadius * 0.5;
-      final paint = Paint()
-        ..color = Color.fromARGB(
-          255,
-          e.type.color[0],
-          e.type.color[1],
-          e.type.color[2],
-        );
+      // Reuse fill paint for enemy color
+      GamePaints.fill.color = Color.fromARGB(
+        255,
+        e.type.color[0],
+        e.type.color[1],
+        e.type.color[2],
+      );
 
       // Draw enemy shape based on type (matching towerdefense)
-      _drawEnemy(canvas, e, cx, cy, r, paint);
+      _drawEnemy(canvas, e, cx, cy, r, GamePaints.fill);
 
       // Draw HP bar(s) above enemy
       if (e.type.key == 'boss') {
@@ -1001,22 +1028,21 @@ class TdGame extends FlameGame with TapCallbacks {
       final tileCenterX = tileLeft + tileW / 2;
       final tileCenterY = tileTop + tileH / 2;
 
-      // Draw highlighted tile background
+      // Draw highlighted tile background - reuse fill paint
+      GamePaints.fill.color = _pendingTowerType!.color.isNotEmpty
+          ? Color.fromARGB(
+              100,
+              _pendingTowerType!.color[0],
+              _pendingTowerType!.color[1],
+              _pendingTowerType!.color[2],
+            )
+          : const Color(0x64FFD700);
       canvas.drawRect(
         Rect.fromLTWH(tileLeft, tileTop, tileW, tileH),
-        Paint()
-          ..color = _pendingTowerType!.color.isNotEmpty
-              ? Color.fromARGB(
-                  100,
-                  _pendingTowerType!.color[0],
-                  _pendingTowerType!.color[1],
-                  _pendingTowerType!.color[2],
-                )
-              : const Color(0x64FFD700)
-          ..style = PaintingStyle.fill,
+        GamePaints.fill,
       );
 
-      // Draw pulsing border
+      // Draw pulsing border - reuse stroke3 paint
       final pulseAlpha =
           (128 +
                   127 *
@@ -1025,35 +1051,31 @@ class TdGame extends FlameGame with TapCallbacks {
                               (DateTime.now().millisecondsSinceEpoch % 1000) /
                               1000))
               .toInt();
+      GamePaints.stroke3.color = Color.fromARGB(pulseAlpha, 255, 255, 255);
       canvas.drawRect(
         Rect.fromLTWH(tileLeft, tileTop, tileW, tileH),
-        Paint()
-          ..color = Color.fromARGB(pulseAlpha, 255, 255, 255)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 3,
+        GamePaints.stroke3,
       );
 
-      // Draw range preview
+      // Draw range preview - reuse fill paint
       final rangeRadius = _pendingTowerType!.range * tileSizeForRadius;
-      canvas.drawCircle(
-        Offset(tileCenterX, tileCenterY),
-        rangeRadius,
-        Paint()
-          ..color = Color.fromARGB(
-            40,
-            _pendingTowerType!.color[0],
-            _pendingTowerType!.color[1],
-            _pendingTowerType!.color[2],
-          )
-          ..style = PaintingStyle.fill,
+      GamePaints.fill.color = Color.fromARGB(
+        40,
+        _pendingTowerType!.color[0],
+        _pendingTowerType!.color[1],
+        _pendingTowerType!.color[2],
       );
       canvas.drawCircle(
         Offset(tileCenterX, tileCenterY),
         rangeRadius,
-        Paint()
-          ..color = const Color(0x80FFFFFF)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 1,
+        GamePaints.fill,
+      );
+      // Reuse stroke1 paint
+      GamePaints.stroke1.color = const Color(0x80FFFFFF);
+      canvas.drawCircle(
+        Offset(tileCenterX, tileCenterY),
+        rangeRadius,
+        GamePaints.stroke1,
       );
     }
 

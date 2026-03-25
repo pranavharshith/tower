@@ -333,27 +333,28 @@ class _GridPainter extends CustomPainter {
   final int cols;
   final int rows;
 
+  // Cache paint object
+  static final Paint _gridPaint = Paint()
+    ..color = AppTheme.gridLine
+    ..strokeWidth = 0.5;
+
   _GridPainter({required this.cols, required this.rows});
 
   @override
   void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = AppTheme.gridLine
-      ..strokeWidth = 0.5;
-
     final cellWidth = size.width / cols;
     final cellHeight = size.height / rows;
 
     // Draw vertical lines
     for (int i = 0; i <= cols; i++) {
       final x = i * cellWidth;
-      canvas.drawLine(Offset(x, 0), Offset(x, size.height), paint);
+      canvas.drawLine(Offset(x, 0), Offset(x, size.height), _gridPaint);
     }
 
     // Draw horizontal lines
     for (int i = 0; i <= rows; i++) {
       final y = i * cellHeight;
-      canvas.drawLine(Offset(0, y), Offset(size.width, y), paint);
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), _gridPaint);
     }
   }
 
@@ -366,14 +367,15 @@ class _PathPainter extends CustomPainter {
   final int cols;
   final int rows;
 
+  // Cache paint object
+  static final Paint _pathPaint = Paint()
+    ..color = AppTheme.pathTile
+    ..style = PaintingStyle.fill;
+
   _PathPainter({required this.mapKey, required this.cols, required this.rows});
 
   @override
   void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = AppTheme.pathTile
-      ..style = PaintingStyle.fill;
-
     final cellWidth = size.width / cols;
     final cellHeight = size.height / rows;
 
@@ -387,7 +389,7 @@ class _PathPainter extends CustomPainter {
         cellWidth,
         cellHeight,
       );
-      canvas.drawRect(rect, paint);
+      canvas.drawRect(rect, _pathPaint);
     }
   }
 

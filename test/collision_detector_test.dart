@@ -120,6 +120,11 @@ void main() {
       );
       sim.enemies.add(enemy);
 
+      // CRITICAL: Update spatial grid before collision detection
+      sim.paused = false;
+      sim.step(); // This updates the spatial grid
+      sim.paused = true;
+
       detector.fireMissile(
         posX: 5.4,
         posY: 5.4,
