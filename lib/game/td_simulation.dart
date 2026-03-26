@@ -1,4 +1,4 @@
-﻿import 'dart:math';
+import 'dart:math';
 
 import '../config/td_game_config.dart';
 import '../core/interfaces/i_simulation.dart';
@@ -93,6 +93,7 @@ class TdSim implements ISimulation {
   @override
   List<List<int?>> get dists => _pathfindingService.dists;
   List<List<double>> get dangerHeatmap => _pathfindingService.dangerHeatmap;
+  int get pathVersion => _pathfindingService.pathVersion;
 
   // Enemy management - delegated to EnemyManager
   late final EnemyManager _enemyManager;

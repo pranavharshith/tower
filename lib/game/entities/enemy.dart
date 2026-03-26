@@ -48,6 +48,9 @@ class TdEnemy {
   int _cachedDirection = 0;
   int _directionCacheFrames = 0;
   static const int _directionCacheDuration = 3; // Cache for 3 frames
+  
+  // Performance optimization: only check blockage if path version changed
+  int _lastPathVersion = -1;
 
   // OPTIMIZATION: Throttle medic healing queries (every 10 frames instead of every frame)
   int _medicHealFrames = 0;
@@ -184,12 +187,62 @@ class TdEnemy {
     final speedMultiplier = _statusManager.getSpeedMultiplier();
     final currentSpeed = _baseSpeed * speedMultiplier;
 
-    if (atTileCenter(posX, posY, gridCol, gridRow)) {
+    final simPathVersion = sim.pathVersion as int;
+    final needsPathRefresh = _lastPathVersion != simPathVersion;
+    if (needsPathRefresh) {
+      _directionCacheFrames = 0; // invalidate cached direction on any path change
+    }
+
+    final isAtCenter = atTileCenter(posX, posY, gridCol, gridRow);
+    if (sim.hasTowerAt(gridCol, gridRow)) {
+      // Emergency escape: never allow enemies to stay on a tower tile.
+      final escapeDir = _findEscapeDirection(sim, gridCol, gridRow);
+      if (escapeDir == 0) {
+        velX = 0;
+        velY = 0;
+        return;
+      }
+      final velocity =
+          currentSpeed * GameConstants.baseSpeedTilesPerSecond * dt;
+      _setVelocityFromDirection(escapeDir, velocity);
+      posX += velX;
+      posY += velY;
+      return;
+    }
+    if (isAtCenter) {
       if (!_isInBounds(sim)) return;
+      _lastPathVersion = simPathVersion; // Updated to current version
       final dir = _chooseDirection(sim);
       final velocity =
           currentSpeed * GameConstants.baseSpeedTilesPerSecond * dt;
       _setVelocityFromDirection(dir, velocity);
+    } else {
+      // Not at center - only check for blockage if path version changed (performance optimization)
+      if (needsPathRefresh && (velX != 0 || velY != 0)) {
+        final dists = sim.dists as List<List<int?>>;
+        final nextCol = gridCol + velX.sign.toInt();
+        final nextRow = gridRow + velY.sign.toInt();
+
+        if (nextCol >= 0 &&
+            nextCol < dists.length &&
+            nextRow >= 0 &&
+            nextRow < dists[0].length) {
+          if (dists[nextCol][nextRow] == null ||
+              sim.hasTowerAt(nextCol, nextRow)) {
+            // Target tile is now blocked! 
+            // PERFORMANCE: Only re-path once per version change
+            _lastPathVersion = simPathVersion; 
+            
+            // VISUAL POLISH: Instead of hard snapping, reverse velocity 
+            // back towards the center of the CURRENT tile. 
+            // The next time we reach atTileCenter, we'll pick a proper path.
+            final velocity =
+                currentSpeed * GameConstants.baseSpeedTilesPerSecond * dt;
+            _setVelocityTowardsCenter(velocity);
+            _directionCacheFrames = 0; // Force immediate re-path upon reaching center
+          }
+        }
+      }
     }
 
     posX += velX;
@@ -209,8 +262,11 @@ class TdEnemy {
   int _chooseDirection(dynamic sim) {
     // OPTIMIZATION: Use cached direction if still valid
     if (_directionCacheFrames > 0) {
-      _directionCacheFrames--;
-      return _cachedDirection;
+      if (_isCachedDirectionValid(sim)) {
+        _directionCacheFrames--;
+        return _cachedDirection;
+      }
+      _directionCacheFrames = 0;
     }
 
     final col = gridCol;
@@ -242,6 +298,7 @@ class TdEnemy {
       if (nc < 0 || nr < 0 || nc >= cols || nr >= rows) continue;
       final neighborDist = dists[nc][nr];
       if (neighborDist == null) continue;
+      if (sim.hasTowerAt(nc, nr)) continue;
       if (neighborDist < currentDist) {
         final danger = dangerHeatmap[nc][nr];
         final dangerPenalty = danger * (1.0 - riskTolerance);
@@ -268,6 +325,82 @@ class TdEnemy {
     _cachedDirection = optimalDirs[bestIndex];
     _directionCacheFrames = _directionCacheDuration;
     return _cachedDirection;
+  }
+
+  bool _isCachedDirectionValid(dynamic sim) {
+    if (_cachedDirection == 0) return false;
+    final col = gridCol;
+    final row = gridRow;
+    final cols = sim.baseMap.cols as int;
+    final rows = sim.baseMap.rows as int;
+    if (col < 0 || row < 0 || col >= cols || row >= rows) return false;
+    final dists = sim.dists as List<List<int?>>;
+    final currentDist = dists[col][row];
+    if (currentDist == null || currentDist == 0) return false;
+    final next = _neighborFromDir(col, row, _cachedDirection);
+    final nc = next.x;
+    final nr = next.y;
+    if (nc < 0 || nr < 0 || nc >= cols || nr >= rows) return false;
+    final neighborDist = dists[nc][nr];
+    if (neighborDist == null) return false;
+    if (sim.hasTowerAt(nc, nr)) return false;
+    return neighborDist < currentDist;
+  }
+
+  int _findEscapeDirection(dynamic sim, int col, int row) {
+    final cols = sim.baseMap.cols as int;
+    final rows = sim.baseMap.rows as int;
+    final dists = sim.dists as List<List<int?>>;
+    int bestDir = 0;
+    int? bestDist;
+
+    final neighbors = [
+      [col - 1, row, 1],
+      [col, row - 1, 2],
+      [col + 1, row, 3],
+      [col, row + 1, 4],
+    ];
+
+    for (final neighbor in neighbors) {
+      final nc = neighbor[0];
+      final nr = neighbor[1];
+      final dir = neighbor[2];
+      if (nc < 0 || nr < 0 || nc >= cols || nr >= rows) continue;
+      if (sim.hasTowerAt(nc, nr)) continue;
+      final nd = dists[nc][nr];
+      if (nd == null) continue;
+      if (bestDist == null || nd < bestDist) {
+        bestDist = nd;
+        bestDir = dir;
+      }
+    }
+    return bestDir;
+  }
+
+  TdCoord _neighborFromDir(int col, int row, int dir) {
+    switch (dir) {
+      case 1:
+        return TdCoord(col - 1, row);
+      case 2:
+        return TdCoord(col, row - 1);
+      case 3:
+        return TdCoord(col + 1, row);
+      case 4:
+        return TdCoord(col, row + 1);
+      default:
+        return TdCoord(col, row);
+    }
+  }
+
+  void _setVelocityTowardsCenter(double velocity) {
+    // Point velocity back towards the center of the current tile (gridCol + 0.5, gridRow + 0.5)
+    final targetX = gridCol + 0.5;
+    final targetY = gridRow + 0.5;
+    final dx = targetX - posX;
+    final dy = targetY - posY;
+    final angle = atan2(dy, dx);
+    velX = cos(angle) * velocity;
+    velY = sin(angle) * velocity;
   }
 
   void _setVelocityFromDirection(int dir, double velocity) {

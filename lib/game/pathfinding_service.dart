@@ -24,11 +24,17 @@ class PathfindingService {
   // Adaptive pathfinding - danger heatmap for enemy AI
   late List<List<double>> dangerHeatmap; // tracks enemy deaths per tile
   static const double dangerDecayRate = 0.98; // decay per frame (60fps)
-  static const double dangerWeight = 2.0; // how much enemies avoid danger
+  static const double dangerWeight = 4.0; // how much enemies avoid danger
   static const int dangerThreshold = 3; // minimum deaths to consider dangerous
   int _framesSincePathRecalc = 0;
   static const int pathRecalcInterval =
       300; // recalc every 5 seconds (60fps * 5) - reduced from 2s for better performance
+  
+  // Track path version for event-driven enemy updates
+  int pathVersion = 0;
+  
+  // Tower avoidance weighting
+  static const double towerProximityPenalty = 5.0;
 
   // Cached for placement / BFS
   late List<List<bool>> walkableCache;
@@ -115,6 +121,7 @@ class PathfindingService {
   /// Recalculate paths using BFS from exit with danger-aware pathfinding
   /// Pass hasTowerAt callback to check tower positions
   void recalculate(bool Function(int col, int row) hasTowerAt) {
+    pathVersion++; // Increment version to signal enemies to re-path
     final cols = baseMap.cols;
     final rows = baseMap.rows;
 
@@ -211,6 +218,7 @@ class PathfindingService {
         // Find all neighbors with shorter distance (optimal paths)
         final currentDist = distance[c][r];
         final optimalNeighbors = <int>[];
+        final optimalNeighborCoords = <List<int>>[];
         final neighborDangers = <double>[];
 
         // Check all 4 directions
@@ -232,6 +240,7 @@ class PathfindingService {
           // If neighbor is closer to exit, it's an optimal direction
           if (distance[nc][nr] < currentDist) {
             optimalNeighbors.add(dir);
+            optimalNeighborCoords.add([nc, nr]);
             neighborDangers.add(dangerHeatmap[nc][nr]);
           }
         }
@@ -241,11 +250,37 @@ class PathfindingService {
           // Find minimum danger among optimal neighbors
           double minDanger = neighborDangers.reduce((a, b) => a < b ? a : b);
 
-          // Filter neighbors that are within acceptable danger range
+          // Accept neighbors with danger close to minimum (within threshold)
+          // Score = danger + (is near tower ? proximity penalty : 0)
+          
+          final neighborScores = <double>[];
+          for (int i = 0; i < optimalNeighbors.length; i++) {
+            final nc = optimalNeighborCoords[i][0];
+            final nr = optimalNeighborCoords[i][1];
+            
+            double score = neighborDangers[i];
+            
+            // Check if neighbor is adjacent to any tower (proximity penalty)
+            bool nearTower = false;
+            for (final d in [[-1, 0], [1, 0], [0, -1], [0, 1]]) {
+              final nnc = nc + d[0];
+              final nnr = nr + d[1];
+              if (nnc >= 0 && nnr >= 0 && nnc < cols && nnr < rows) {
+                if (hasTowerAt(nnc, nnr)) {
+                  nearTower = true;
+                  break;
+                }
+              }
+            }
+            
+            if (nearTower) score += towerProximityPenalty;
+            neighborScores.add(score);
+          }
+
+          double minScore = neighborScores.reduce((a, b) => a < b ? a : b);
           final safestNeighbors = <int>[];
           for (int i = 0; i < optimalNeighbors.length; i++) {
-            // Accept neighbors with danger close to minimum (within threshold)
-            if (neighborDangers[i] <= minDanger + dangerWeight) {
+            if (neighborScores[i] <= minScore + dangerWeight) {
               safestNeighbors.add(optimalNeighbors[i]);
             }
           }
@@ -267,8 +302,9 @@ class PathfindingService {
           }
         }
 
-        // Preserve pre-made path directions on grid==2 tiles
-        if (grid[c][r] == 2) {
+        // Preserve pre-made path directions on grid==2 tiles ONLY if they are still walkable
+        // If a tower is placed on a path tile, we MUST use the BFS-calculated path to avoid the tower
+        if (grid[c][r] == 2 && walkableCache[c][r]) {
           newPaths[c][r] = oldPaths[c][r];
         }
       }

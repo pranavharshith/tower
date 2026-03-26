@@ -19,6 +19,7 @@ import 'dialogs/sell_dialog.dart';
 import 'dialogs/settings_dialog.dart';
 import '../game/entities/tower.dart';
 import 'dialogs/quit_dialog.dart';
+import 'widgets/tower_store_bar.dart';
 
 class TdGamePage extends ConsumerStatefulWidget {
   final TdPrefs prefs;
@@ -733,111 +734,23 @@ class _TdGamePageState extends ConsumerState<TdGamePage> {
                   ),
                 ),
                 // Bottom Tower Store Bar - Fixed height, separate from game
-                SafeArea(
-                  top: false,
-                  child: Container(
-                    margin: const EdgeInsets.all(12),
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    decoration: BoxDecoration(
-                      color: AppTheme.surface.withValues(alpha: 0.95),
-                      borderRadius: BorderRadius.circular(AppTheme.radiusLarge),
-                      boxShadow: AppTheme.mediumShadow,
-                    ),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        // Store Title
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 8, left: 16),
-                          child: Row(
-                            children: [
-                              Icon(
-                                Icons.store_rounded,
-                                size: 16,
-                                color: AppTheme.textSecondary,
-                              ),
-                              const SizedBox(width: 6),
-                              Text(
-                                'Tower Store',
-                                style: GoogleFonts.nunito(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w600,
-                                  color: AppTheme.textSecondary,
-                                ),
-                              ),
-                            ],
-                          ),
+                TowerStoreBar(
+                  game: _game,
+                  onTowerSelected: (t) => _updateTapToPlaceMessage(t),
+                  onMaxTowersReached: () {
+                    final hud = _game.hud.value;
+                    ScaffoldMessenger.of(context).clearSnackBars();
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          'Max towers reached (${hud.towerCount}/${hud.maxTowers}). Upgrade or sell existing towers.',
+                          style: GoogleFonts.nunito(),
                         ),
-                        // Tower List
-                        SizedBox(
-                          height: 90,
-                          child: ValueListenableBuilder<int>(
-                            valueListenable: _game.selectionRevision,
-                            builder: (context, _, __) {
-                              final placing = _game.placingType;
-                              final selected = _game.selectedTower;
-                              // Read HUD once per rebuild instead of nested listener
-                              final hud = _game.hud.value;
-
-                              return ListView.builder(
-                                scrollDirection: Axis.horizontal,
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 12,
-                                ),
-                                itemCount: towerTypes.length,
-                                itemBuilder: (context, index) {
-                                  final key = towerTypes.keys.elementAt(index);
-                                  final t = towerTypes[key]!;
-                                  final isActive =
-                                      placing?.key == t.key ||
-                                      selected?.towerType.key == t.key;
-                                  final canAfford = hud.cash >= t.cost;
-                                  final maxedOut = hud.maxTowersReached;
-
-                                  return Padding(
-                                    padding: const EdgeInsets.only(right: 10),
-                                    child: TowerStoreItem(
-                                      towerType: t,
-                                      isActive: isActive,
-                                      isDisabled: !canAfford || maxedOut,
-                                      onTap: () {
-                                        if (maxedOut) {
-                                          // Show max towers message
-                                          ScaffoldMessenger.of(
-                                            context,
-                                          ).showSnackBar(
-                                            SnackBar(
-                                              content: Text(
-                                                'Max towers reached (${hud.towerCount}/${hud.maxTowers}). Upgrade or sell existing towers.',
-                                                style: GoogleFonts.nunito(),
-                                              ),
-                                              backgroundColor: AppTheme.error,
-                                              duration: const Duration(
-                                                seconds: 2,
-                                              ),
-                                            ),
-                                          );
-                                          return;
-                                        }
-
-                                        // Toggle: If same tower is already selected, deselect it
-                                        if (placing?.key == t.key) {
-                                          _game.cancelPendingTower();
-                                        } else {
-                                          _game.startPlacingTower(t);
-                                          _updateTapToPlaceMessage(t);
-                                        }
-                                      },
-                                    ),
-                                  );
-                                },
-                              );
-                            },
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+                        backgroundColor: AppTheme.error,
+                        duration: const Duration(seconds: 2),
+                      ),
+                    );
+                  },
                 ),
               ],
             ),
